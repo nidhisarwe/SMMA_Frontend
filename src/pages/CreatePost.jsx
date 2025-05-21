@@ -334,7 +334,7 @@ const PreviewModal = ({ onClose, content, platform, isCarousel }) => {
     });
   };
 
-  return (
+ return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div
         className="absolute inset-0 bg-black/20 backdrop-blur-sm"
@@ -362,11 +362,24 @@ const PreviewModal = ({ onClose, content, platform, isCarousel }) => {
               {getPlatformIcon()}
             </div>
             <div className="flex-1">
-              <h3 className="font-medium text-gray-800 text-sm">Shail Digital</h3>
+              <h3 className="font-medium text-gray-800 text-sm">SocialSync</h3>
               <p className="text-xs text-gray-500">SocialSync Post • Just now</p>
             </div>
             <BsThreeDots className="text-gray-500 text-lg cursor-pointer hover:text-gray-700" />
           </div>
+
+          {/* LinkedIn Carousel Warning */}
+          {platform === 'LinkedIn' && isCarousel && Array.isArray(content) && content.length > 1 && (
+            <div className="my-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
+              <div className="flex items-center">
+                <RiLinkedinFill className="text-blue-600 mr-2 text-lg" />
+                <span className="text-blue-800 font-medium">LinkedIn API Limitation</span>
+              </div>
+              <p className="text-sm text-blue-700 mt-1">
+                When posting to LinkedIn, only the first image will be used due to LinkedIn API limitations.
+              </p>
+            </div>
+          )}
 
           <div className="mb-3">
             <p className="text-gray-800 text-sm whitespace-pre-line">
@@ -474,23 +487,23 @@ const PreviewModal = ({ onClose, content, platform, isCarousel }) => {
 
           <div className="flex items-center justify-between pt-3 border-t border-gray-200 space-x-2">
             <motion.button
-    whileHover={{ scale: 1.05 }}
-    whileTap={{ scale: 0.95 }}
-    onClick={handleSaveDraft}
-    disabled={loading}
-    className="px-6 py-3 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition-colors disabled:opacity-50"
-  >
-    Save Draft
-  </motion.button>
-  <motion.button
-    whileHover={{ scale: 1.05 }}
-    whileTap={{ scale: 0.95 }}
-    onClick={handleSchedulePost}
-    disabled={loading}
-    className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
-  >
-    Schedule Post
-  </motion.button>
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={handleSaveDraft}
+              disabled={loading}
+              className="px-6 py-3 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition-colors disabled:opacity-50"
+            >
+              Save Draft
+            </motion.button>
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={handleSchedulePost}
+              disabled={loading}
+              className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+            >
+              Schedule Post
+            </motion.button>
 
             <button
               onClick={() => {
@@ -522,7 +535,6 @@ const PreviewModal = ({ onClose, content, platform, isCarousel }) => {
     </div>
   );
 };
-
   // Fetch campaigns from database
   useEffect(() => {
     const fetchCampaigns = async () => {
@@ -730,6 +742,25 @@ const PreviewModal = ({ onClose, content, platform, isCarousel }) => {
     }
   };
 
+  const showLinkedInCarouselWarning = (carouselItems) => {
+  if (carouselItems.length > 1) {
+    toast.info(
+      <div>
+        <strong>LinkedIn Carousel Limitation</strong>
+        <p className="mt-1 text-sm">
+          LinkedIn's API only supports single image posts. Your first carousel image will be used for LinkedIn.
+        </p>
+      </div>,
+      {
+        position: "top-center",
+        autoClose: 5000,
+        icon: <RiLinkedinFill className="text-blue-600 text-xl" />
+      }
+    );
+  }
+};
+
+// Complete handlePostNow function with LinkedIn carousel handling
 const handlePostNow = async () => {
   if (!caption.trim()) {
     toast.warn("Caption is required to post.", {
@@ -758,6 +789,11 @@ const handlePostNow = async () => {
   try {
     // Validate platform
     const platform = validatePlatform(selectedPlatform);
+
+    // Show special warning for LinkedIn carousel posts
+    if (platform.toLowerCase() === "linkedin" && isCarousel && carouselItems.length > 1) {
+      showLinkedInCarouselWarning(carouselItems);
+    }
 
     // Check if user has connected accounts for this platform
     let connectedAccountsResponse;
@@ -807,7 +843,7 @@ const handlePostNow = async () => {
         }
       }
     } else {
-      if (uploadedImage.startsWith("blob:")) {
+      if (uploadedImage && uploadedImage.startsWith("blob:")) {
         const response = await fetch(uploadedImage);
         const blob = await response.blob();
         const file = new File([blob], "generated-image.jpg", {
@@ -844,6 +880,8 @@ const handlePostNow = async () => {
       user_id: "current_user_id" // In a real app, this would come from authentication
     };
 
+    console.log("Posting with data:", requestData);
+
     // Call the post-now endpoint
     const response = await axios.post(
       "/api/post-now/",
@@ -852,11 +890,18 @@ const handlePostNow = async () => {
     );
 
     if (response.data.success) {
+      let successMessage = `Post successfully published to ${platform}!`;
+
+      // Add special message for LinkedIn carousel posts
+      if (platform.toLowerCase() === 'linkedin' && isCarousel && carouselItems.length > 1) {
+        successMessage = `Post published to LinkedIn with the first image only, due to API limitations.`;
+      }
+
       toast.update(toastId, {
         render: (
           <div className="flex items-center">
             <FaCheckCircle className="text-green-500 mr-2" />
-            Post successfully published to {platform}!
+            {successMessage}
           </div>
         ),
         type: "success",
@@ -865,31 +910,50 @@ const handlePostNow = async () => {
       });
 
       // Optional: Clear form after successful post
- 
+      // setCaption("");
+      // setUploadedImage(null);
+      // setCarouselItems([]);
+
     } else {
       throw new Error("Failed to post content");
     }
   } catch (error) {
     console.error("Error posting:", error);
     let errorMessage = "Error posting. Please try again.";
-    if (error.message.includes("Invalid platform")) {
-      errorMessage = error.message; // Display platform validation error
-    } else if (error.response) {
-      errorMessage = error.response.data?.detail || error.response.data?.message || error.response.statusText;
-    } else if (error.message.includes("Network Error")) {
-      errorMessage = "Network error: Unable to connect to the server";
+    let errorType = "error";
+
+    // Specific error handling for LinkedIn
+    if (error.response) {
+      if (error.response.data?.detail) {
+        errorMessage = error.response.data.detail;
+
+        // Handle specific LinkedIn errors
+        if (typeof errorMessage === 'string' && errorMessage.includes("INVALID_CONTENT_OWNERSHIP")) {
+          errorMessage = "LinkedIn error: Image ownership issue. This is a common LinkedIn API limitation. Try using a text-only post.";
+          errorType = "warning";
+        }
+      } else if (error.response.data?.message) {
+        errorMessage = error.response.data.message;
+      } else if (error.response.statusText) {
+        errorMessage = error.response.statusText;
+      }
+    } else if (error.message) {
+      errorMessage = error.message;
     }
 
     toast.update(toastId, {
       render: (
         <div className="flex items-center">
-          <FaExclamationTriangle className="text-red-500 mr-2" />
-          {errorMessage}
+          <FaExclamationTriangle className={`${errorType === "warning" ? "text-yellow-500" : "text-red-500"} mr-2`} />
+          <div>
+            <div className="font-medium">{errorType === "warning" ? "Warning" : "Error"}</div>
+            <div className="text-sm">{errorMessage}</div>
+          </div>
         </div>
       ),
-      type: "error",
+      type: errorType,
       isLoading: false,
-      autoClose: 5000,
+      autoClose: 7000,
     });
   } finally {
     setLoading(false);

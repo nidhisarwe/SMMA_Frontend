@@ -6,13 +6,13 @@ import {
   FaInstagram,
   FaFacebook,
   FaLinkedin,
-  FaCoins,
-  FaWrench,
+  FaPen,
+  FaCalendarAlt,
   FaQuestionCircle,
   FaCheck,
   FaPlus,
   FaTimes,
-  FaSpinner
+  FaSpinner,
 } from "react-icons/fa";
 import { motion, AnimatePresence } from "framer-motion";
 import axios from "axios";
@@ -27,44 +27,61 @@ const SocialDashboard = () => {
   const [selectedAccountType, setSelectedAccountType] = useState("personal");
   const [disconnecting, setDisconnecting] = useState(null);
   const [linkedInState, setLinkedInState] = useState("");
+  const [greeting, setGreeting] = useState("Good Day");
   const navigate = useNavigate();
   const location = useLocation();
 
- const fetchInitialData = async (retryCount = 0) => {
-  const maxRetries = 3;
-  try {
-    console.log("Fetching LinkedIn auth URL...");
-    // Get LinkedIn auth URL
-    const authUrlResponse = await axios.get("/api/linkedin/auth-url");
-    console.log("Auth URL response:", authUrlResponse.data);
+  // Dynamic greeting based on time of day
+  useEffect(() => {
+    const updateGreeting = () => {
+      const hour = new Date().getHours();
+      if (hour < 12) {
+        setGreeting("Good Morning");
+      } else if (hour < 17) {
+        setGreeting("Good Afternoon");
+      } else {
+        setGreeting("Good Evening");
+      }
+    };
+    updateGreeting();
+    // Update greeting every minute to handle edge cases (e.g., crossing midnight)
+    const interval = setInterval(updateGreeting, 60000);
+    return () => clearInterval(interval);
+  }, []);
 
-    if (!authUrlResponse.data.authUrl) {
-      throw new Error("No LinkedIn auth URL returned from server. Please check backend configuration.");
-    }
-    setLinkedInAuthUrl(authUrlResponse.data.authUrl);
-    setLinkedInState(authUrlResponse.data.state);
+  const fetchInitialData = async (retryCount = 0) => {
+    const maxRetries = 3;
+    try {
+      console.log("Fetching LinkedIn auth URL...");
+      const authUrlResponse = await axios.get("/api/linkedin/auth-url");
+      console.log("Auth URL response:", authUrlResponse.data);
 
-    // Get connected accounts
-    await fetchConnectedAccounts();
-  } catch (error) {
-    console.error("Error fetching data:", error);
-    console.error("Full error object:", error.response || error);
-    let errorMessage = error.response?.data?.detail || error.message;
-    if (error.response?.status === 500) {
-      errorMessage = "Server error while fetching LinkedIn auth URL. Please try again or contact support.";
+      if (!authUrlResponse.data.authUrl) {
+        throw new Error("No LinkedIn auth URL returned from server. Please check backend configuration.");
+      }
+      setLinkedInAuthUrl(authUrlResponse.data.authUrl);
+      setLinkedInState(authUrlResponse.data.state);
+
+      await fetchConnectedAccounts();
+    } catch (error) {
+      console.error("Error fetching data:", error);
+      console.error("Full error object:", error.response || error);
+      let errorMessage = error.response?.data?.detail || error.message;
+      if (error.response?.status === 500) {
+        errorMessage = "Server error while fetching LinkedIn auth URL. Please try again or contact support.";
+      }
+      if (retryCount < maxRetries) {
+        console.log(`Retrying fetchInitialData (attempt ${retryCount + 1})...`);
+        setTimeout(() => fetchInitialData(retryCount + 1), 1000);
+      } else {
+        setError(`Failed to load dashboard: ${errorMessage}`);
+      }
+    } finally {
+      if (retryCount === 0) {
+        setLoading(false);
+      }
     }
-    if (retryCount < maxRetries) {
-      console.log(`Retrying fetchInitialData (attempt ${retryCount + 1})...`);
-      setTimeout(() => fetchInitialData(retryCount + 1), 1000);
-    } else {
-      setError(`Failed to load dashboard: ${errorMessage}`);
-    }
-  } finally {
-    if (retryCount === 0) {
-      setLoading(false);
-    }
-  }
-};
+  };
 
   const handleLinkedInConnect = (accountType = "personal") => {
     if (!linkedInAuthUrl) {
@@ -73,8 +90,8 @@ const SocialDashboard = () => {
     }
     try {
       const url = new URL(linkedInAuthUrl);
-      url.searchParams.set('account_type', accountType);
-      url.searchParams.set('state', linkedInState);
+      url.searchParams.set("account_type", accountType);
+      url.searchParams.set("state", linkedInState);
       window.location.href = url.toString();
     } catch (err) {
       console.error("Error constructing LinkedIn auth URL:", err);
@@ -82,17 +99,16 @@ const SocialDashboard = () => {
     }
   };
 
-  // Check URL parameters when component mounts
   useEffect(() => {
     const query = new URLSearchParams(location.search);
-    if (query.get('linkedin_connected') === 'true') {
+    if (query.get("linkedin_connected") === "true") {
       setSuccessMessage("LinkedIn account connected successfully!");
       setTimeout(() => setSuccessMessage(""), 5000);
       window.history.replaceState({}, document.title, window.location.pathname);
     }
 
-    if (query.get('linkedin_error')) {
-      setError(`LinkedIn connection failed: ${query.get('linkedin_error')}`);
+    if (query.get("linkedin_error")) {
+      setError(`LinkedIn connection failed: ${query.get("linkedin_error")}`);
       setTimeout(() => setError(null), 5000);
       window.history.replaceState({}, document.title, window.location.pathname);
     }
@@ -116,7 +132,7 @@ const SocialDashboard = () => {
     try {
       setDisconnecting(true);
       await axios.delete(`/api/accounts/${accountId}`, {
-        data: { user_id: "current_user_id" }
+        data: { user_id: "current_user_id" },
       });
       setSuccessMessage("Account disconnected successfully");
       setTimeout(() => setSuccessMessage(""), 5000);
@@ -131,13 +147,13 @@ const SocialDashboard = () => {
 
   const handleConnect = (platform) => {
     switch (platform) {
-      case 'linkedin':
+      case "linkedin":
         setShowAccountTypeSelector(true);
         break;
-      case 'facebook':
+      case "facebook":
         setError("Facebook integration coming soon!");
         break;
-      case 'instagram':
+      case "instagram":
         setError("Instagram integration coming soon!");
         break;
       default:
@@ -249,11 +265,13 @@ const SocialDashboard = () => {
                         whileHover={{ scale: 1.02 }}
                         whileTap={{ scale: 0.98 }}
                         onClick={() => {
-                          setSelectedAccountType('personal');
-                          handleLinkedInConnect('personal');
+                          setSelectedAccountType("personal");
+                          handleLinkedInConnect("personal");
                           setShowAccountTypeSelector(false);
                         }}
-                        className={`w-full px-4 py-3 rounded-lg flex items-center ${selectedAccountType === 'personal' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-800'}`}
+                        className={`w-full px-4 py-3 rounded-lg flex items-center ${
+                          selectedAccountType === "personal" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-800"
+                        }`}
                       >
                         <FaLinkedin className="mr-3" />
                         Personal Profile
@@ -262,11 +280,13 @@ const SocialDashboard = () => {
                         whileHover={{ scale: 1.02 }}
                         whileTap={{ scale: 0.98 }}
                         onClick={() => {
-                          setSelectedAccountType('company');
-                          handleLinkedInConnect('company');
+                          setSelectedAccountType("company");
+                          handleLinkedInConnect("company");
                           setShowAccountTypeSelector(false);
                         }}
-                        className={`w-full px-4 py-3 rounded-lg flex items-center ${selectedAccountType === 'company' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-800'}`}
+                        className={`w-full px-4 py-3 rounded-lg flex items-center ${
+                          selectedAccountType === "company" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-800"
+                        }`}
                       >
                         <FaLinkedin className="mr-3" />
                         Company Page
@@ -282,21 +302,17 @@ const SocialDashboard = () => {
 
             <header className="mb-8">
               <h1 className="text-3xl font-bold text-gray-900">
-                Good Afternoon, Admin <span className="ml-1">👋</span>
+                {greeting} <span className="ml-1">👋</span>
               </h1>
               <p className="text-gray-600 mt-2">
-                Here's what's happening with your social accounts today
+                Manage your social media presence with ease
               </p>
             </header>
 
             <div className="bg-white rounded-xl shadow-sm p-6 mb-8 border border-gray-100">
               <div className="flex justify-between items-center mb-6">
-                <h2 className="text-xl font-semibold text-gray-900">
-                  Your Connected Accounts
-                </h2>
-                <span className="text-sm text-gray-500">
-                  {connectedAccounts.length} of 3 connected
-                </span>
+                <h2 className="text-xl font-semibold text-gray-900">Your Connected Accounts</h2>
+                <span className="text-sm text-gray-500">{connectedAccounts.length} of 3 connected</span>
               </div>
 
               {connectedAccounts.length > 0 ? (
@@ -307,14 +323,22 @@ const SocialDashboard = () => {
                       whileHover={{ y: -5 }}
                       className="border border-gray-200 rounded-lg p-4 flex items-center bg-gradient-to-r from-gray-50 to-white relative"
                     >
-                      <div className={`w-12 h-12 rounded-full flex items-center justify-center mr-4 shadow-sm ${
-                        account.platform === 'instagram' ? 'bg-gradient-to-r from-pink-500 to-purple-600' :
-                        account.platform === 'facebook' ? 'bg-gradient-to-r from-blue-600 to-blue-800' :
-                        'bg-gradient-to-r from-blue-500 to-blue-700'
-                      }`}>
-                        {account.platform === 'instagram' ? <FaInstagram className="text-white text-xl" /> :
-                         account.platform === 'facebook' ? <FaFacebook className="text-white text-xl" /> :
-                         <FaLinkedin className="text-white text-xl" />}
+                      <div
+                        className={`w-12 h-12 rounded-full flex items-center justify-center mr-4 shadow-sm ${
+                          account.platform === "instagram"
+                            ? "bg-gradient-to-r from-pink-500 to-purple-600"
+                            : account.platform === "facebook"
+                            ? "bg-gradient-to-r from-blue-600 to-blue-800"
+                            : "bg-gradient-to-r from-blue-500 to-blue-700"
+                        }`}
+                      >
+                        {account.platform === "instagram" ? (
+                          <FaInstagram className="text-white text-xl" />
+                        ) : account.platform === "facebook" ? (
+                          <FaFacebook className="text-white text-xl" />
+                        ) : (
+                          <FaLinkedin className="text-white text-xl" />
+                        )}
                       </div>
                       <div className="flex-1">
                         <h3 className="font-medium text-gray-900">{account.name}</h3>
@@ -356,9 +380,7 @@ const SocialDashboard = () => {
 
             <div className="bg-white rounded-xl shadow-sm p-8 mb-8 border border-gray-100">
               <div className="text-center mb-8">
-                <h2 className="text-2xl font-semibold text-gray-900 mb-2">
-                  Connect Your Social Accounts
-                </h2>
+                <h2 className="text-2xl font-semibold text-gray-900 mb-2">Connect Your Social Accounts</h2>
                 <p className="text-gray-600 max-w-2xl mx-auto">
                   Link your social media accounts to unlock powerful scheduling and analytics features.
                 </p>
@@ -368,7 +390,7 @@ const SocialDashboard = () => {
                 <motion.button
                   whileHover={{ scale: 1.03 }}
                   whileTap={{ scale: 0.98 }}
-                  onClick={() => handleConnect('instagram')}
+                  onClick={() => handleConnect("instagram")}
                   className="flex flex-col items-center px-6 py-6 border-2 border-gray-200 rounded-xl hover:border-pink-300 hover:bg-pink-50 transition-all group"
                 >
                   <div className="bg-gradient-to-r from-pink-500 to-purple-600 w-14 h-14 rounded-full flex items-center justify-center mb-4 shadow-lg group-hover:shadow-xl transition-shadow">
@@ -381,7 +403,7 @@ const SocialDashboard = () => {
                 <motion.button
                   whileHover={{ scale: 1.03 }}
                   whileTap={{ scale: 0.98 }}
-                  onClick={() => handleConnect('facebook')}
+                  onClick={() => handleConnect("facebook")}
                   className="flex flex-col items-center px-6 py-6 border-2 border-gray-200 rounded-xl hover:border-blue-300 hover:bg-blue-50 transition-all group"
                 >
                   <div className="bg-gradient-to-r from-blue-600 to-blue-800 w-14 h-14 rounded-full flex items-center justify-center mb-4 shadow-lg group-hover:shadow-xl transition-shadow">
@@ -394,7 +416,7 @@ const SocialDashboard = () => {
                 <motion.button
                   whileHover={{ scale: 1.03 }}
                   whileTap={{ scale: 0.98 }}
-                  onClick={() => handleConnect('linkedin')}
+                  onClick={() => handleConnect("linkedin")}
                   className="flex flex-col items-center px-6 py-6 border-2 border-gray-200 rounded-xl hover:border-blue-400 hover:bg-blue-50 transition-all group"
                 >
                   <div className="bg-gradient-to-r from-blue-500 to-blue-700 w-14 h-14 rounded-full flex items-center justify-center mb-4 shadow-lg group-hover:shadow-xl transition-shadow">
@@ -413,14 +435,14 @@ const SocialDashboard = () => {
                   className="bg-white p-6 rounded-xl shadow-sm hover:shadow-md transition-all h-full block border border-gray-100 group"
                 >
                   <div className="bg-gradient-to-r from-blue-100 to-blue-50 w-14 h-14 rounded-xl flex items-center justify-center mb-4 shadow-inner group-hover:shadow-inner-lg transition-shadow">
-                    <FaCoins className="text-blue-600 text-2xl" />
+                    <FaPen className="text-blue-600 text-2xl" />
                   </div>
-                  <h3 className="text-xl font-semibold text-gray-900 mb-3">Win Rewards</h3>
+                  <h3 className="text-xl font-semibold text-gray-900 mb-3">Create a Post</h3>
                   <p className="text-gray-600 mb-4">
-                    Invite friends and earn credits for premium features!
+                    Craft and schedule new posts for your connected social media accounts.
                   </p>
                   <div className="flex items-center text-blue-600 text-sm font-medium group-hover:text-blue-700 transition-colors">
-                    <span>Learn more</span>
+                    <span>Start Posting</span>
                     <FaPlus className="ml-2 text-xs" />
                   </div>
                 </Link>
@@ -432,14 +454,14 @@ const SocialDashboard = () => {
                   className="bg-white p-6 rounded-xl shadow-sm hover:shadow-md transition-all h-full block border border-gray-100 group"
                 >
                   <div className="bg-gradient-to-r from-blue-100 to-blue-50 w-14 h-14 rounded-xl flex items-center justify-center mb-4 shadow-inner group-hover:shadow-inner-lg transition-shadow">
-                    <FaWrench className="text-blue-600 text-2xl" />
+                    <FaCalendarAlt className="text-blue-600 text-2xl" />
                   </div>
-                  <h3 className="text-xl font-semibold text-gray-900 mb-3">Product Updates</h3>
+                  <h3 className="text-xl font-semibold text-gray-900 mb-3">View Content Calendar</h3>
                   <p className="text-gray-600 mb-4">
-                    Discover new features and improvements we've released.
+                    Plan and review your scheduled posts and campaigns.
                   </p>
                   <div className="flex items-center text-blue-600 text-sm font-medium group-hover:text-blue-700 transition-colors">
-                    <span>See what's new</span>
+                    <span>Check Calendar</span>
                     <FaPlus className="ml-2 text-xs" />
                   </div>
                 </Link>
@@ -453,12 +475,12 @@ const SocialDashboard = () => {
                   <div className="bg-gradient-to-r from-blue-100 to-blue-50 w-14 h-14 rounded-xl flex items-center justify-center mb-4 shadow-inner group-hover:shadow-inner-lg transition-shadow">
                     <FaQuestionCircle className="text-blue-600 text-2xl" />
                   </div>
-                  <h3 className="text-xl font-semibold text-gray-900 mb-3">Need Help?</h3>
+                  <h3 className="text-xl font-semibold text-gray-900 mb-3">Get Support</h3>
                   <p className="text-gray-600 mb-4">
-                    Our support team is ready to assist you with any questions.
+                    Reach out to our support team for assistance with your account.
                   </p>
                   <div className="flex items-center text-blue-600 text-sm font-medium group-hover:text-blue-700 transition-colors">
-                    <span>Contact support</span>
+                    <span>Contact Support</span>
                     <FaPlus className="ml-2 text-xs" />
                   </div>
                 </Link>

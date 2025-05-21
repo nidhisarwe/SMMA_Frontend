@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { Calendar, momentLocalizer, Views } from "react-big-calendar";
 import "react-big-calendar/lib/css/react-big-calendar.css";
 import moment from "moment";
+import "moment-timezone";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import axios from "axios";
@@ -11,7 +12,7 @@ import Sidebar from "../components/Sidebar";
 import {
   FiPlus, FiClock, FiX, FiChevronLeft, FiChevronRight,
   FiCalendar, FiFilter, FiRefreshCw, FiUpload, FiDownload,
-  FiShare2, FiUsers, FiBarChart2, FiSettings, FiTag
+  FiShare2, FiUsers, FiBarChart2, FiSettings, FiTag, FiAlertTriangle
 } from "react-icons/fi";
 import { motion, AnimatePresence } from "framer-motion";
 import { ToastContainer, toast } from "react-toastify";
@@ -21,7 +22,10 @@ import * as XLSX from 'xlsx';
 import { Chart as ChartJS, ArcElement, Tooltip, Legend } from 'chart.js';
 import { Doughnut } from 'react-chartjs-2';
 import Confetti from 'react-confetti';
+import { RiLinkedinFill, RiFacebookFill, RiTwitterFill, RiInstagramFill } from "react-icons/ri";
 
+// Set the default timezone to Indian Standard Time
+moment.tz.setDefault("Asia/Kolkata");
 ChartJS.register(ArcElement, Tooltip, Legend);
 
 const localizer = momentLocalizer(moment);
@@ -54,6 +58,8 @@ const CalendarPage = () => {
     byStatus: {}
   });
   const [showConfetti, setShowConfetti] = useState(false);
+  const [connectedAccounts, setConnectedAccounts] = useState([]);
+  const [showAccountWarning, setShowAccountWarning] = useState(false);
 
   // Platform colors and icons
   const platformData = {
@@ -71,23 +77,36 @@ const CalendarPage = () => {
     draft: "bg-yellow-100 text-yellow-800"
   };
 
-  // Fetch scheduled posts and statistics
+  // Helper function to convert UTC date from API to local IST time
+  const convertToIST = (utcDateString) => {
+    return moment.utc(utcDateString).tz("Asia/Kolkata").toDate();
+  };
+
+  // Effect to auto-open schedule form if post data is passed from previous page
+  useEffect(() => {
+    if (caption && image_url && platform) {
+      setShowScheduleForm(true);
+    }
+  }, [caption, image_url, platform]);
+
+  // Fetch scheduled posts, statistics and connected accounts
   useEffect(() => {
     const fetchData = async () => {
       try {
         setIsLoading(true);
-        const [eventsRes, statsRes, teamRes] = await Promise.all([
+        const [eventsRes, statsRes, teamRes, accountsRes] = await Promise.all([
           axios.get(API_URL),
-          axios.get(`${API_URL}/stats`),
-          axios.get("http://127.0.0.1:8000/api/team-members")
+          axios.get("http://127.0.0.1:8000/api/scheduled-posts-stats/"),
+          axios.get("http://127.0.0.1:8000/api/team-members"),
+          axios.get("http://127.0.0.1:8000/api/accounts/?user_id=current_user_id")
         ]);
 
-        // Process events
+        // Process events - Convert UTC to IST
         const eventsData = eventsRes.data.map((post) => ({
           id: post.id,
           title: post.caption.length > 30 ? post.caption.slice(0, 30) + "..." : post.caption,
-          start: new Date(post.scheduled_time),
-          end: new Date(new Date(post.scheduled_time).getTime() + 30 * 60000),
+          start: convertToIST(post.scheduled_time),
+          end: new Date(convertToIST(post.scheduled_time).getTime() + 30 * 60000),
           allDay: false,
           platform: post.platform,
           caption: post.caption,
@@ -110,6 +129,22 @@ const CalendarPage = () => {
 
         // Process team members
         setTeamMembers(teamRes.data);
+
+        // Process connected accounts
+        if (accountsRes.data && accountsRes.data.accounts) {
+          setConnectedAccounts(accountsRes.data.accounts);
+        }
+
+        // Check if we have a connected account for the current platform
+        if (platform) {
+          const hasAccount = accountsRes.data.accounts?.some(
+            acc => acc.platform.toLowerCase() === platform.toLowerCase() && acc.is_active
+          );
+
+          if (!hasAccount) {
+            setShowAccountWarning(true);
+          }
+        }
       } catch (error) {
         console.error("Error fetching data:", error);
         toast.error("Failed to load data");
@@ -119,7 +154,7 @@ const CalendarPage = () => {
     };
 
     fetchData();
-  }, []);
+  }, [platform]);
 
   // Apply filters whenever events, activeFilter, searchQuery, or selectedTeamMember changes
   useEffect(() => {
@@ -154,23 +189,47 @@ const CalendarPage = () => {
       return;
     }
 
+    // Check if we have a connected account for this platform
+    const hasConnectedAccount = connectedAccounts.some(
+      acc => acc.platform.toLowerCase() === platform.toLowerCase() && acc.is_active
+    );
+
+    if (!hasConnectedAccount) {
+      toast.error(`No connected ${platform} account found. Please connect an account first.`);
+      setShowAccountWarning(true);
+      return;
+    }
+
+    // Get the selected date and time in IST
     const scheduledDateTime = new Date(selectedDate);
     scheduledDateTime.setHours(selectedTime.getHours());
     scheduledDateTime.setMinutes(selectedTime.getMinutes());
 
+    // Check if the scheduled time is in the past
+    if (scheduledDateTime <= new Date()) {
+      toast.error("Cannot schedule posts in the past. Please select a future date and time.");
+      return;
+    }
+
     try {
       setIsModalLoading(true);
+
+      // Convert IST to UTC for API
+      const scheduledUTC = moment.tz(scheduledDateTime, "Asia/Kolkata").utc().format();
+
+      // Use the new schedule-post endpoint
       const response = await axios.post("http://127.0.0.1:8000/api/schedule-post/", {
         caption,
         image_url: is_carousel ? image_url : image_url,
         platform,
-        scheduled_time: scheduledDateTime.toISOString(),
+        scheduled_time: scheduledUTC,
         is_carousel,
+        user_id: "current_user_id",
         tags: ["scheduled"]
       });
 
       const newEvent = {
-        id: response.data.id || Date.now(),
+        id: response.data.id,
         title: caption.length > 30 ? caption.slice(0, 30) + "..." : caption,
         start: scheduledDateTime,
         end: new Date(scheduledDateTime.getTime() + 30 * 60000),
@@ -187,9 +246,9 @@ const CalendarPage = () => {
 
       // Show confetti on success
       setShowConfetti(true);
-      setTimeout(() => setShowConfetti(false), 3000); // Hide after 3 seconds
+      setTimeout(() => setShowConfetti(false), 3000);
 
-      toast.success("Post scheduled successfully! 🎉");
+      toast.success(`Post scheduled for ${moment(scheduledDateTime).format("MMMM Do YYYY, h:mm a")}! 🎉`);
       setShowScheduleForm(false);
 
       // Update stats
@@ -205,9 +264,23 @@ const CalendarPage = () => {
           scheduled: (prev.byStatus.scheduled || 0) + 1
         }
       }));
+
+      // Navigate back to the create post page to start fresh
+      navigate("/create-post", {
+        state: {
+          scheduleSuccess: true,
+          scheduledTime: scheduledDateTime.toISOString()
+        }
+      });
     } catch (error) {
       console.error("Error scheduling post:", error);
-      toast.error("Failed to schedule post. Please try again.");
+      let errorMessage = "Failed to schedule post. Please try again.";
+
+      if (error.response && error.response.data && error.response.data.detail) {
+        errorMessage = error.response.data.detail;
+      }
+
+      toast.error(errorMessage);
     } finally {
       setIsModalLoading(false);
     }
@@ -219,7 +292,7 @@ const CalendarPage = () => {
     const toastId = toast.loading("Canceling post...", { position: "top-right" });
 
     try {
-      await axios.delete(`${API_URL}/${eventId}/`);
+      await axios.delete(`${API_URL}/${eventId}`);
       const deletedEvent = events.find(e => e.id === eventId);
       setEvents(events.filter((event) => event.id !== eventId));
 
@@ -263,7 +336,7 @@ const CalendarPage = () => {
     const toastId = toast.loading("Updating post status...");
 
     try {
-      await axios.patch(`${API_URL}/${eventId}/`, { status: newStatus });
+      await axios.patch(`${API_URL}/${eventId}`, { status: newStatus });
       setEvents(events.map(event =>
         event.id === eventId ? { ...event, status: newStatus } : event
       ));
@@ -304,7 +377,7 @@ const CalendarPage = () => {
       filteredEvents.map(event => ({
         "Post Title": event.title,
         "Platform": event.platform,
-        "Scheduled Time": moment(event.start).format("YYYY-MM-DD HH:mm"),
+        "Scheduled Time (IST)": moment(event.start).format("YYYY-MM-DD HH:mm"),
         "Status": event.status,
         "Assigned To": event.assigned_to || "Unassigned",
         "Tags": event.tags?.join(", ") || ""
@@ -471,7 +544,7 @@ const CalendarPage = () => {
         <div className="flex-shrink-0 mr-2 mt-0.5">
           {event.platform && (
             <svg className="h-4 w-4 text-white" fill="currentColor" viewBox="0 0 24 24">
-              <path d={platformData[event.platform]?.icon} />
+              <path d={platformData[event.platform]?.icon || ""} />
             </svg>
           )}
         </div>
@@ -501,6 +574,22 @@ const CalendarPage = () => {
     }
   };
 
+  // Get platform icon based on platform name
+  const getPlatformIcon = (platform) => {
+    switch (platform?.toLowerCase()) {
+      case "instagram":
+        return <RiInstagramFill className="text-pink-600" />;
+      case "facebook":
+        return <RiFacebookFill className="text-blue-600" />;
+      case "twitter":
+        return <RiTwitterFill className="text-blue-400" />;
+      case "linkedin":
+        return <RiLinkedinFill className="text-blue-700" />;
+      default:
+        return <FiCalendar className="text-gray-600" />;
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50 flex flex-col">
       {/* Confetti animation */}
@@ -516,7 +605,7 @@ const CalendarPage = () => {
             confettiSource={{
               w: 10,
               h: window.innerHeight,
-              x: 0, // Left side
+              x: 0,
               y: 0
             }}
           />
@@ -530,7 +619,7 @@ const CalendarPage = () => {
             confettiSource={{
               w: 10,
               h: window.innerHeight,
-              x: window.innerWidth - 10, // Right side
+              x: window.innerWidth - 10,
               y: 0
             }}
           />
@@ -546,7 +635,7 @@ const CalendarPage = () => {
             <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-6">
               <div>
                 <h1 className="text-3xl font-bold text-gray-800 mb-1">Content Calendar</h1>
-                <p className="text-gray-600">Plan, visualize and manage your social media content</p>
+                <p className="text-gray-600">Plan, visualize and manage your social media content (Indian Standard Time)</p>
               </div>
               <div className="flex items-center space-x-3 mt-4 md:mt-0">
                 <motion.button
@@ -574,8 +663,50 @@ const CalendarPage = () => {
                   accept=".xlsx,.xls,.csv"
                   className="hidden"
                 />
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={exportToExcel}
+                  className="flex items-center gap-2 bg-white border border-gray-200 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 transition-all duration-200 text-sm"
+                >
+                  <FiDownload size={16} />
+                  Export
+                </motion.button>
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={shareCalendar}
+                  className="flex items-center gap-2 bg-white border border-gray-200 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 transition-all duration-200 text-sm"
+                >
+                  <FiShare2 size={16} />
+                  Share
+                </motion.button>
               </div>
             </div>
+
+            {/* Connected Account Warning */}
+            {showAccountWarning && platform && (
+              <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-6 rounded-lg shadow-sm">
+                <div className="flex">
+                  <div className="flex-shrink-0">
+                    <FiAlertTriangle className="h-5 w-5 text-yellow-400" />
+                  </div>
+                  <div className="ml-3">
+                    <p className="text-sm text-yellow-700">
+                      <strong>No connected {platform} account found.</strong> Posts scheduled for {platform} will not be published automatically.
+                    </p>
+                    <div className="mt-2">
+                      <button
+                        onClick={() => navigate("/social-dashboard")}
+                        className="text-sm font-medium text-yellow-700 underline hover:text-yellow-600"
+                      >
+                        Connect Account
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Stats Cards */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
@@ -602,7 +733,7 @@ const CalendarPage = () => {
                       style={{ backgroundColor: `${platformData[platform]?.color}20`, color: platformData[platform]?.color }}
                     >
                       <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24">
-                        <path d={platformData[platform]?.icon} />
+                        <path d={platformData[platform]?.icon || ""} />
                       </svg>
                     </div>
                   </div>
@@ -644,7 +775,9 @@ const CalendarPage = () => {
                                 onClick={() => setActiveFilter(platform === "all" ? "all" : platform)}
                                 className={`px-3 py-1 text-xs rounded-full capitalize ${
                                   activeFilter === platform
-                                    ? `bg-${platformData[platform]?.color || "blue"}-100 text-${platformData[platform]?.color || "blue"}-600`
+                                    ? platform === "all"
+                                      ? "bg-blue-100 text-blue-600"
+                                      : `bg-${platform}-100 text-${platform}-600`
                                     : "bg-gray-100 text-gray-700"
                                 }`}
                               >
@@ -652,6 +785,21 @@ const CalendarPage = () => {
                               </motion.button>
                             ))}
                           </div>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-500 mb-1">Team Member</label>
+                          <select
+                            value={selectedTeamMember}
+                            onChange={(e) => setSelectedTeamMember(e.target.value)}
+                            className="w-full p-2 border border-gray-300 rounded-lg text-sm"
+                          >
+                            <option value="all">All Team Members</option>
+                            {teamMembers.map(member => (
+                              <option key={member.username} value={member.username}>
+                                {member.name || member.username}
+                              </option>
+                            ))}
+                          </select>
                         </div>
                         <div>
                           <label className="block text-xs font-medium text-gray-500 mb-1">Search</label>
@@ -800,7 +948,7 @@ const CalendarPage = () => {
                               <div className="flex items-center mb-1">
                                 <span
                                   className={`inline-block w-2 h-2 rounded-full mr-2`}
-                                  style={{ backgroundColor: platformData[event.platform]?.color }}
+                                  style={{ backgroundColor: platformData[event.platform]?.color || "#999" }}
                                 ></span>
                                 <span className="text-sm font-medium text-gray-800 truncate max-w-[120px]">
                                   {event.title}
@@ -866,7 +1014,7 @@ const CalendarPage = () => {
 
                     <div className="space-y-4 pb-2">
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Select Date</label>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Select Date (IST)</label>
                         <DatePicker
                           selected={selectedDate}
                           onChange={setSelectedDate}
@@ -876,7 +1024,7 @@ const CalendarPage = () => {
                         />
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Select Time</label>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Select Time (IST)</label>
                         <DatePicker
                           selected={selectedTime}
                           onChange={setSelectedTime}
@@ -888,6 +1036,24 @@ const CalendarPage = () => {
                           className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
                         />
                       </div>
+
+                      {/* Platform Indicator */}
+                      {platform && (
+                        <div className="flex items-center py-2 px-3 bg-gray-50 rounded-lg">
+                          <div className="mr-2">
+                            {getPlatformIcon(platform)}
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium text-gray-700 capitalize">{platform}</p>
+                            <p className="text-xs text-gray-500">
+                              {connectedAccounts.some(acc => acc.platform.toLowerCase() === platform.toLowerCase())
+                                ? "Connected account found"
+                                : "No connected account"}
+                            </p>
+                          </div>
+                        </div>
+                      )}
+
                       {caption && (
                         <div className="bg-gray-50 p-4 rounded-lg">
                           <p className="text-xs text-gray-500 mb-1">Post Preview</p>
@@ -901,10 +1067,29 @@ const CalendarPage = () => {
                                   className="w-full h-full object-cover"
                                 />
                               </div>
+                              {is_carousel && Array.isArray(image_url) && image_url.length > 1 && (
+                                <p className="text-xs text-gray-500 mt-1 text-center">
+                                  +{image_url.length - 1} more images in carousel
+                                </p>
+                              )}
                             </div>
                           )}
                         </div>
                       )}
+
+                      {/* LinkedIn Warning for Carousel */}
+                      {platform === 'linkedin' && is_carousel && Array.isArray(image_url) && image_url.length > 1 && (
+                        <div className="bg-blue-50 p-3 rounded-lg border border-blue-100">
+                          <div className="flex items-center">
+                            <RiLinkedinFill className="text-blue-600 mr-2" />
+                            <p className="text-sm font-medium text-blue-700">LinkedIn API Limitation</p>
+                          </div>
+                          <p className="text-xs text-blue-600 mt-1">
+                            LinkedIn only supports single image posts through their API. Only the first image will be used.
+                          </p>
+                        </div>
+                      )}
+
                       <div className="pt-2">
                         <motion.button
                           whileHover={{ scale: 1.02 }}
@@ -976,9 +1161,9 @@ const CalendarPage = () => {
                                   className="h-5 w-5 mr-2"
                                   fill="currentColor"
                                   viewBox="0 0 24 24"
-                                  style={{ color: platformData[selectedEvent.platform]?.color }}
+                                  style={{ color: platformData[selectedEvent.platform]?.color || "#999" }}
                                 >
-                                  <path d={platformData[selectedEvent.platform]?.icon} />
+                                  <path d={platformData[selectedEvent.platform]?.icon || ""} />
                                 </svg>
                               )}
                               <span className="font-medium capitalize">{selectedEvent.platform}</span>
@@ -992,7 +1177,7 @@ const CalendarPage = () => {
                             <div className="flex items-center text-gray-800 mb-2">
                               <FiClock className="mr-2 text-gray-500 h-4 w-4" />
                               <p className="font-medium text-sm">
-                                {moment(selectedEvent.start).format("MMMM Do YYYY, h:mm a")}
+                                {moment(selectedEvent.start).format("MMMM Do YYYY, h:mm a")} (IST)
                               </p>
                             </div>
                             <p className="text-sm text-gray-800 mb-3">{selectedEvent.caption}</p>

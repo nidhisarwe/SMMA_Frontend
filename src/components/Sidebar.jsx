@@ -130,7 +130,7 @@ const Sidebar = () => {
               SocialSync
             </h1>
           </div>
-          <p className="text-left text-xs text-gray-500 mt-1 font-medium">Marketing Suite Pro</p>
+{/*           <p className="text-left text-xs text-gray-500 mt-1 font-medium">Marketing Suite Pro</p> */}
         </div>
 
         {/* Create New Button */}
@@ -139,7 +139,7 @@ const Sidebar = () => {
             whileHover={{ y: -1, scale: 1.01 }}
             whileTap={{ scale: 0.98 }}
             className="w-full bg-gradient-to-r from-blue-600 to-blue-500 text-white py-3 px-4 rounded-xl font-semibold flex items-center justify-center hover:shadow-lg transition-all duration-200 shadow-md"
-            onClick={() => navigate("/create-post")}
+            onClick={() => navigate("/create-campaign")}
           >
             <FaPlus className="mr-3 text-sm" />
             <span className="text-sm tracking-wide">Create New</span>
@@ -203,15 +203,15 @@ const Sidebar = () => {
           <h3 className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Content Management</h3>
           <NavItem icon={<FaChartLine size={14} />} text="Dashboard" link="/social-dashboard" currentPath={location.pathname} />
           <NavItem icon={<FaFolder size={14} />} text="Content Library" link="/drafts-page" currentPath={location.pathname} />
-          <NavItem icon={<FaCalendar size={14} />} text="Content Calendar" link="/content-calendar" currentPath={location.pathname} />
+          <NavItem icon={<FaCalendar size={14} />} text="Content Calendar" link="/calendar" currentPath={location.pathname} />
           <NavItem icon={<FaShareAlt size={14} />} text="Brand Accounts" link="/accounts" currentPath={location.pathname} />
         </div>
 
         {/* Additional Features */}
         <div className="border-t border-gray-100 px-3 pt-4 pb-4">
           <h3 className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Advanced Tools</h3>
-          <NavItem icon={<FaChartBar size={14} />} text="Competitor Analysis" currentPath={location.pathname} />
-          <NavItem icon={<FaLightbulb size={14} />} text="Idea Lab" link="/create-campaign" currentPath={location.pathname} />
+{/*           <NavItem icon={<FaChartBar size={14} />} text="Competitor Analysis" currentPath={location.pathname} /> */}
+          <NavItem icon={<FaLightbulb size={14} />} text="Post Generator" link="/create-post" currentPath={location.pathname} />
           <NavItem icon={<FaBookmark size={14} />} text="Saved Campaigns" link="/saved-campaigns" currentPath={location.pathname} />
         </div>
 
@@ -219,28 +219,28 @@ const Sidebar = () => {
         <div className="border-t border-gray-100 px-3 pt-4">
           <h3 className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Support</h3>
           <NavItem icon={<FaCommentDots size={14} />} text="Chat Support" link="/chat-support" currentPath={location.pathname} />
-          <NavItem icon={<FaCreditCard size={14} />} text="Pricing & Account" currentPath={location.pathname} />
-          <NavItem icon={<FaGlobe size={14} />} text="Language Settings" currentPath={location.pathname} />
+{/*           <NavItem icon={<FaCreditCard size={14} />} text="Pricing & Account" currentPath={location.pathname} /> */}
+{/*           <NavItem icon={<FaGlobe size={14} />} text="Language Settings" currentPath={location.pathname} /> */}
         </div>
       </div>
 
       {/* User Profile - Fixed at bottom */}
 
-<div className="border-t border-gray-100 p-4 bg-gray-50 mt-auto">
-  <div className="flex items-center">
-    <div className="w-10 h-10 rounded-full bg-gradient-to-r from-blue-500 to-blue-400 flex items-center justify-center shadow-inner">
-      <span className="text-white font-medium text-lg">
-        {JSON.parse(localStorage.getItem("user"))?.full_name?.[0]?.toUpperCase() || "U"}
-      </span>
-    </div>
-    <div className="ml-3">
-      <p className="text-sm font-medium text-gray-800">
-        {JSON.parse(localStorage.getItem("user"))?.full_name || "User"}
-      </p>
-      <p className="text-xs text-gray-500">Pro Plan</p>
-    </div>
-  </div>
-</div>
+{/* <div className="border-t border-gray-100 p-4 bg-gray-50 mt-auto"> */}
+{/*   <div className="flex items-center"> */}
+{/*     <div className="w-10 h-10 rounded-full bg-gradient-to-r from-blue-500 to-blue-400 flex items-center justify-center shadow-inner"> */}
+{/*       <span className="text-white font-medium text-lg"> */}
+{/*         {JSON.parse(localStorage.getItem("user"))?.full_name?.[0]?.toUpperCase() || "U"} */}
+{/*       </span> */}
+{/*     </div> */}
+{/*     <div className="ml-3"> */}
+{/*       <p className="text-sm font-medium text-gray-800"> */}
+{/*         {JSON.parse(localStorage.getItem("user"))?.full_name || "User"} */}
+{/*       </p> */}
+{/*       <p className="text-xs text-gray-500">Pro Plan</p> */}
+{/*     </div> */}
+{/*   </div> */}
+{/* </div> */}
     </motion.aside>
   );
 };

@@ -87,66 +87,68 @@ const AuthPage = () => {
     });
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setIsLoading(true);
+ const handleSubmit = async (e) => {
+  e.preventDefault();
+  setIsLoading(true);
 
-    const { fullName, email, organizationName, password } = formData;
+  const { fullName, email, organizationName, password } = formData;
 
-    if (isLoginMode) {
-      if (!email || !password) {
-        toast.error("Email and Password are required for login.");
-        triggerShake();
-        setIsLoading(false);
-        return;
-      }
-      try {
-        const response = await axios.post(`${API_BASE_URL}/login`, { email, password });
-        toast.success(response.data.message || "Login successful!");
-        // Store token or user info if necessary
-        // e.g., localStorage.setItem('token', response.data.token);
-        setTimeout(() => {
-          navigate("/social-dashboard");
-        }, 1500);
-      } catch (err) {
-        toast.error(err.response?.data?.detail || "Login failed. Please check your credentials.");
-        triggerShake();
-      }
-    } else { // Registration mode
-      if (!fullName || !email || !organizationName || !password) {
-        toast.error("All fields are required for registration.");
-        triggerShake();
-        setIsLoading(false);
-        return;
-      }
-      if (password.length < 6) {
-        toast.error("Password must be at least 6 characters long.");
-        triggerShake();
-        setIsLoading(false);
-        return;
-      }
-      try {
-        const response = await axios.post(`${API_BASE_URL}/register`, {
-          full_name: fullName,
-          email,
-          organization_name: organizationName,
-          password,
-        });
-        toast.success("Registration successful! Please login to continue.");
-        setIsLoginMode(true); // Switch to login mode
-        setFormData({ // Clear form, keeping email for convenience
-          fullName: "",
-          email: email,
-          organizationName: "",
-          password: "",
-        });
-      } catch (err) {
-        toast.error(err.response?.data?.detail || "Registration failed. Please try again.");
-        triggerShake();
-      }
+  if (isLoginMode) {
+    if (!email || !password) {
+      toast.error("Email and Password are required for login.");
+      triggerShake();
+      setIsLoading(false);
+      return;
     }
-    setIsLoading(false);
-  };
+    try {
+      const response = await axios.post(`${API_BASE_URL}/login`, { email, password });
+      toast.success(response.data.message || "Login successful!");
+      // Store token and user info in localStorage
+      localStorage.setItem("authToken", response.data.token); // Assuming the API returns a token
+      localStorage.setItem("user", JSON.stringify({ full_name: response.data.full_name || "User", email }));
+      setTimeout(() => {
+        navigate("/social-dashboard");
+      }, 1500);
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Login failed. Please check your credentials.");
+      triggerShake();
+    }
+  } else {
+    // Registration mode (unchanged)
+    if (!fullName || !email || !organizationName || !password) {
+      toast.error("All fields are required for registration.");
+      triggerShake();
+      setIsLoading(false);
+      return;
+    }
+    if (password.length < 6) {
+      toast.error("Password must be at least 6 characters long.");
+      triggerShake();
+      setIsLoading(false);
+      return;
+    }
+    try {
+      const response = await axios.post(`${API_BASE_URL}/register`, {
+        full_name: fullName,
+        email,
+        organization_name: organizationName,
+        password,
+      });
+      toast.success("Registration successful! Please login to continue.");
+      setIsLoginMode(true);
+      setFormData({
+        fullName: "",
+        email: email,
+        organizationName: "",
+        password: "",
+      });
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Registration failed. Please try again.");
+      triggerShake();
+    }
+  }
+  setIsLoading(false);
+};
 
   return (
     <motion.div
