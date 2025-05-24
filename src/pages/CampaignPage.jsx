@@ -23,10 +23,29 @@ const CampaignPage = () => {
   const [shareLink, setShareLink] = useState('');
 
   const [campaignName, setCampaignName] = useState(campaignData?.name || 'Campaign');
+  const [theme, setTheme] = useState(campaignData?.theme || '');
+  const [startDate, setStartDate] = useState(campaignData?.startDate || '');
+  const [endDate, setEndDate] = useState(campaignData?.endDate || '');
   const [posts, setPosts] = useState([]);
   const [originalPosts, setOriginalPosts] = useState({});
   const [isSaving, setIsSaving] = useState(false);
   const contentRefs = useRef({});
+
+  const formatDate = (dateString) => {
+    if (!dateString || dateString === '') return 'Not set';
+    try {
+      const date = new Date(dateString);
+      if (isNaN(date.getTime())) return 'Invalid date';
+      return date.toLocaleDateString(undefined, {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric'
+      });
+    } catch (error) {
+      console.error('Error formatting date:', dateString, error);
+      return 'Invalid date';
+    }
+  };
 
   const cleanText = (text) => {
     if (!text) return '';
@@ -35,9 +54,8 @@ const CampaignPage = () => {
 
   const parsePosts = (campaignData) => {
     let parsedPosts = [];
-    
+
     try {
-      // Check if we have parsed_posts from the new structure
       if (campaignData.parsed_posts && Array.isArray(campaignData.parsed_posts)) {
         parsedPosts = campaignData.parsed_posts.map((post, idx) => ({
           id: idx + 1,
@@ -48,10 +66,8 @@ const CampaignPage = () => {
           cta: post.call_to_action || 'Engage with this post',
           isEditing: false,
         }));
-      }
-      // Check for content.parsed_posts
-      else if (campaignData.content?.parsed_posts && Array.isArray(campaignData.content.parsed_posts)) {
-        parsedPosts = campaignData.content.parsed_posts.map((post, idx) => ({
+      } else if (campaignData.posts?.raw?.generated_posts) {
+        parsedPosts = campaignData.posts.raw.generated_posts.map((post, idx) => ({
           id: idx + 1,
           title: post.title || `Post ${idx + 1}`,
           type: post.content_type || 'Content Post',
@@ -60,57 +76,16 @@ const CampaignPage = () => {
           cta: post.call_to_action || 'Engage with this post',
           isEditing: false,
         }));
-      }
-      // Check if we have posts with raw structure
-      else if (campaignData.posts) {
-        if (Array.isArray(campaignData.posts)) {
-          parsedPosts = campaignData.posts;
-        } else if (campaignData.posts.raw && campaignData.posts.raw.generated_posts) {
-          // Handle fallback content structure
-          parsedPosts = campaignData.posts.raw.generated_posts.map((post, idx) => ({
-            id: idx + 1,
-            title: post.title,
-            type: post.content_type,
-            schedule: post.schedule,
-            description: post.description,
-            cta: post.call_to_action,
-            isEditing: false,
-          }));
-        } else if (typeof campaignData.posts.raw === 'string') {
-          // Handle raw string content - parse it
-          const rawContent = cleanText(campaignData.posts.raw);
-          parsedPosts = parseRawStringContent(rawContent);
-        }
-      }
-      // Handle campaignData.content structure from new campaign creation
-      else if (campaignData.content) {
-        if (campaignData.content.parsed_posts && Array.isArray(campaignData.content.parsed_posts)) {
-          parsedPosts = campaignData.content.parsed_posts.map((post, idx) => ({
-            id: idx + 1,
-            title: post.title || `Post ${idx + 1}`,
-            type: post.content_type || 'Content Post',
-            schedule: post.schedule || 'To be scheduled',
-            description: post.description || 'No description available',
-            cta: post.call_to_action || 'Engage with this post',
-            isEditing: false,
-          }));
-        } else if (typeof campaignData.content.raw === 'string') {
-          const rawContent = cleanText(campaignData.content.raw);
-          parsedPosts = parseRawStringContent(rawContent);
-        }
-      }
-      
-      // If still no posts, try to parse from raw if available
-      if (parsedPosts.length === 0 && campaignData.raw) {
-        const rawContent = cleanText(campaignData.raw);
+      } else if (typeof campaignData.posts?.raw === 'string') {
+        const rawContent = cleanText(campaignData.posts.raw);
         parsedPosts = parseRawStringContent(rawContent);
       }
-      
+
     } catch (error) {
       console.error('Error parsing posts:', error);
       parsedPosts = [];
     }
-    
+
     return parsedPosts;
   };
 
@@ -153,31 +128,26 @@ const CampaignPage = () => {
         setIsLoading(true);
         try {
           const response = await api.get(`/campaign-schedules/get-campaign/${campaignId}`);
+          console.log('Campaign load response:', JSON.stringify(response.data, null, 2));
 
           if (response.data) {
             const loadedCampaign = response.data;
-            
-            // Parse posts using the updated parser
+
             const campaignPosts = parsePosts(loadedCampaign);
-            
+
             setPosts(campaignPosts);
             setCampaignName(loadedCampaign.campaign_name || loadedCampaign.name || 'Campaign');
+            setTheme(loadedCampaign.theme || '');
+            setStartDate(loadedCampaign.start_date || '');
+            setEndDate(loadedCampaign.end_date || '');
             setIsLoadedCampaign(true);
           } else {
             throw new Error('Empty response from server');
           }
         } catch (error) {
           console.error('Error loading campaign:', error);
-          toast.error(`Failed to load campaign: ${error.response?.data?.detail || error.message}`, {
-            position: "bottom-right",
-            autoClose: 5000,
-            hideProgressBar: false,
-            closeOnClick: true,
-            pauseOnHover: true,
-            draggable: true,
-            theme: "colored",
-          });
-          navigate('/campaigns');
+          toast.error(`Failed to load campaign: ${error.response?.data?.detail || error.message}`);
+          navigate('/saved-campaigns');
         } finally {
           setIsLoading(false);
         }
@@ -185,10 +155,12 @@ const CampaignPage = () => {
 
       loadCampaign();
     } else if (campaignData) {
-      // Handle new campaign data from location state
       const campaignPosts = parsePosts(campaignData);
       setPosts(campaignPosts);
       setCampaignName(campaignData?.name || 'Campaign');
+      setTheme(campaignData?.theme || '');
+      setStartDate(campaignData?.startDate || '');
+      setEndDate(campaignData?.endDate || '');
     }
   }, [campaignId, campaignData, navigate, currentUser]);
 
@@ -196,10 +168,7 @@ const CampaignPage = () => {
     setPosts((prev) =>
       prev.map((post) =>
         post.id === id
-          ? {
-              ...post,
-              isEditing: true,
-            }
+          ? { ...post, isEditing: true }
           : post
       )
     );
@@ -216,12 +185,7 @@ const CampaignPage = () => {
       setPosts((prev) =>
         prev.map((post) => (post.id === id ? { ...original, isEditing: false } : post))
       );
-      toast.info('Changes discarded', {
-        position: "bottom-right",
-        autoClose: 3000,
-        hideProgressBar: true,
-        theme: "colored",
-      });
+      toast.info('Changes discarded');
     }
   };
 
@@ -247,38 +211,26 @@ const CampaignPage = () => {
           post.id === id ? { ...post, ...updatedPost, isEditing: false } : post
         )
       );
-      toast.success('Changes saved', {
-        position: "bottom-right",
-        autoClose: 3000,
-        hideProgressBar: true,
-        theme: "colored",
-      });
+      toast.success('Changes saved');
     }
   };
 
   const handleSaveSchedule = async () => {
     const hasEmptyFields = posts.some(
-      (post) =>
-        !post.title || !post.type || !post.schedule || !post.description || !post.cta
+      (post) => !post.title || !post.type || !post.schedule || !post.description || !post.cta
     );
 
     if (hasEmptyFields) {
-      toast.warning('Please fill in all fields before saving the schedule', {
-        position: "bottom-right",
-        autoClose: 5000,
-        theme: "colored",
-      });
+      toast.warning('Please fill in all fields before saving the schedule');
       return;
     }
 
     setIsSaving(true);
     try {
       console.log('Saving campaign with posts:', posts);
-      
-      // Check if we're editing an existing campaign
+
       const isExistingCampaign = campaignId && campaignId !== 'campaign';
-      
-      // Format posts for the backend
+
       const formattedPosts = posts.map((post) => ({
         title: post.title,
         content_type: post.type,
@@ -286,73 +238,30 @@ const CampaignPage = () => {
         description: post.description,
         call_to_action: post.cta,
       }));
-      
+
       const payload = {
-        campaign_name: campaignName, // Use the correct field name (campaign_name instead of name)
-        theme: campaignData?.theme || '',
+        campaign_name: campaignName,
+        theme: theme,
         parsed_posts: formattedPosts,
-        start_date: campaignData?.startDate || '',
-        end_date: campaignData?.endDate || '',
+        start_date: startDate,
+        end_date: endDate,
         status: 'active',
         post_count: posts.length
       };
 
-      // If we're editing an existing campaign, include the ID
       if (isExistingCampaign) {
         payload.campaign_id = campaignId;
       }
 
-      // First check if a similar campaign already exists
-      let existingCampaigns = [];
-      try {
-        const campaignsResponse = await api.get('/campaign-schedules/get-campaigns');
-        existingCampaigns = Array.isArray(campaignsResponse.data) ? campaignsResponse.data : [];
-      } catch (err) {
-        console.warn('Could not check for existing campaigns:', err);
-      }
-
-      // Check for duplicates (same name and created within last 5 minutes)
-      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
-      const similarCampaign = existingCampaigns.find(campaign => {
-        // Skip if this is the campaign we're editing
-        if (isExistingCampaign && campaign._id === campaignId) {
-          return false;
-        }
-        
-        // Check if name matches and was created recently
-        const campaignName = campaign.campaign_name || campaign.name;
-        const createdAt = new Date(campaign.created_at || campaign.createdAt || 0);
-        return campaignName === payload.campaign_name && createdAt > fiveMinutesAgo;
-      });
-
-      if (similarCampaign && !isExistingCampaign) {
-        console.log('Found similar existing campaign:', similarCampaign);
-        toast.info('A similar campaign was recently created. Redirecting to it.', {
-          position: "bottom-right",
-          autoClose: 3000,
-          theme: "colored",
-        });
-        
-        setTimeout(() => {
-          navigate(`/campaign/${similarCampaign._id}`);
-        }, 1500);
-        return;
-      }
-
-      // Use the correct API endpoint based on whether we're creating or updating
-      const endpoint = isExistingCampaign 
-        ? `/campaign-schedules/campaigns/${campaignId}` 
+      const endpoint = isExistingCampaign
+        ? `/campaign-schedules/campaigns/${campaignId}`
         : '/plan-campaign/';
-      
+
       const method = isExistingCampaign ? 'put' : 'post';
       const response = await api[method](endpoint, payload);
 
       if (response.status === 200 || response.status === 201) {
-        toast.success(`Campaign ${isExistingCampaign ? 'updated' : 'saved'} successfully!`, {
-          position: "bottom-right",
-          autoClose: 3000,
-          theme: "colored",
-        });
+        toast.success(`Campaign ${isExistingCampaign ? 'updated' : 'saved'} successfully!`);
         setTimeout(() => {
           navigate('/saved-campaigns');
         }, 1500);
@@ -361,14 +270,7 @@ const CampaignPage = () => {
       }
     } catch (error) {
       console.error('Error saving campaign:', error);
-      toast.error(
-        `Error saving campaign: ${error.response?.data?.detail || error.message}`,
-        {
-          position: "bottom-right",
-          autoClose: 5000,
-          theme: "colored",
-        }
-      );
+      toast.error(`Error saving campaign: ${error.response?.data?.detail || error.message}`);
     } finally {
       setIsSaving(false);
     }
@@ -376,12 +278,13 @@ const CampaignPage = () => {
 
   const handleDownloadPDF = () => {
     const postCount = posts.length;
-    const dates = isLoadedCampaign
-      ? posts.map(post => post.schedule)
-      : campaignData?.dates || [];
+    const dates = posts.map(post => post.schedule);
 
     let metadata = `📅 Campaign Schedule\n\n`;
     metadata += `Campaign: ${campaignName}\n`;
+    metadata += `Theme: ${theme || 'Not set'}\n`;
+    metadata += `Start Date: ${formatDate(startDate)}\n`;
+    metadata += `End Date: ${formatDate(endDate)}\n`;
     metadata += `Total Posts: ${postCount}\n`;
     if (dates.length) {
       metadata += `Post Dates:\n${dates.map((d, i) => `- Post ${i + 1}: ${d}`).join('\n')}\n`;
@@ -421,12 +324,7 @@ ${post.description}
     });
 
     doc.save(`${campaignName.replace(/\s+/g, '_')}_schedule.pdf`);
-    toast.success('PDF downloaded successfully!', {
-      position: "bottom-right",
-      autoClose: 3000,
-      hideProgressBar: true,
-      theme: "colored",
-    });
+    toast.success('PDF downloaded successfully!');
   };
 
   const generateShareLink = async () => {
@@ -436,18 +334,10 @@ ${post.description}
       setShareLink(mockLink);
 
       await navigator.clipboard.writeText(mockLink);
-      toast.success('Share link copied to clipboard!', {
-        position: "bottom-right",
-        autoClose: 3000,
-        theme: "colored",
-      });
+      toast.success('Share link copied to clipboard!');
     } catch (error) {
       console.error('Error generating share link:', error);
-      toast.error('Failed to generate share link', {
-        position: "bottom-right",
-        autoClose: 5000,
-        theme: "colored",
-      });
+      toast.error('Failed to generate share link');
     } finally {
       setIsSharing(false);
     }
@@ -456,18 +346,10 @@ ${post.description}
   const copyToClipboard = async (text) => {
     try {
       await navigator.clipboard.writeText(text);
-      toast.success('Copied to clipboard!', {
-        position: "bottom-right",
-        autoClose: 2000,
-        theme: "colored",
-      });
+      toast.success('Copied to clipboard!');
     } catch (error) {
       console.error('Failed to copy:', error);
-      toast.error('Failed to copy to clipboard', {
-        position: "bottom-right",
-        autoClose: 5000,
-        theme: "colored",
-      });
+      toast.error('Failed to copy to clipboard');
     }
   };
 
@@ -486,18 +368,15 @@ ${post.description}
 
   return (
     <div className="flex bg-gradient-to-br from-gray-50 to-blue-50 min-h-screen font-[Inter]">
-      {/* Sidebar */}
       <div className="w-[250px] fixed top-0 left-0 bottom-0 z-20 bg-white shadow-xl border-r border-gray-200">
         <Sidebar />
       </div>
 
-      {/* Main Content */}
       <div className="flex flex-col flex-1 ml-[250px]">
         <Navbar />
 
         <main className="flex-1 overflow-y-auto p-8">
           <div className="max-w-7xl mx-auto">
-            {/* Header Section */}
             <div className="flex flex-col md:flex-row items-start md:items-center justify-between mb-8 gap-6">
               <div className="flex-1">
                 <div className="flex items-center gap-4">
@@ -510,18 +389,26 @@ ${post.description}
                         {campaignName}
                       </span>
                     </h1>
-                    <p className="text-gray-500 mt-1 flex items-center gap-2">
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                        isLoadedCampaign ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800'
-                      }`}>
-                        {isLoadedCampaign ? 'Saved Campaign' : 'New Campaign'}
-                      </span>
-                      <span className="text-gray-400">•</span>
-                      <span className="flex items-center gap-1">
-                        <FaRegClock className="text-gray-400" />
-                        {posts.length} posts
-                      </span>
-                    </p>
+                    <div className="mt-2 space-y-1">
+                      <p className="text-gray-500 flex items-center gap-2">
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                          isLoadedCampaign ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800'
+                        }`}>
+                          {isLoadedCampaign ? 'Saved Campaign' : 'New Campaign'}
+                        </span>
+                        <span className="text-gray-400">•</span>
+                        <span className="flex items-center gap-1">
+                          <FaRegClock className="text-gray-400" />
+                          {posts.length} posts
+                        </span>
+                      </p>
+                      <p className="text-sm text-gray-600">
+                        <span className="font-medium">Theme:</span> {theme || 'Not set'}
+                      </p>
+                      <p className="text-sm text-gray-600">
+                        <span className="font-medium">Duration:</span> {formatDate(startDate)} - {formatDate(endDate)}
+                      </p>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -545,7 +432,6 @@ ${post.description}
               </div>
             </div>
 
-            {/* Share Link Modal */}
             {shareLink && (
               <div className="mb-6 p-4 bg-indigo-50 rounded-lg border border-indigo-100 flex items-center justify-between">
                 <div className="flex items-center gap-2 overflow-hidden">
@@ -603,7 +489,7 @@ ${post.description}
                           <span className="text-indigo-600 font-medium">{post.id}</span>
                         </div>
                         <div>
-                          <h2 
+                          <h2
                             data-field="title"
                             contentEditable={post.isEditing}
                             suppressContentEditableWarning={true}
@@ -612,7 +498,7 @@ ${post.description}
                             {post.title || 'Untitled Post'}
                           </h2>
                           <div className="flex items-center gap-2 mt-1">
-                            <span 
+                            <span
                               data-field="type"
                               contentEditable={post.isEditing}
                               suppressContentEditableWarning={true}
@@ -710,7 +596,6 @@ ${post.description}
           </div>
         </main>
 
-        {/* Enhanced Sticky Footer */}
         {!isLoading && posts.length > 0 && (
           <footer className="sticky bottom-0 bg-white border-t border-gray-200 py-4 px-8 shadow-sm z-10">
             <div className="max-w-7xl mx-auto flex flex-col sm:flex-row justify-between items-center gap-4">
@@ -752,7 +637,6 @@ ${post.description}
         )}
       </div>
 
-      {/* Toast Container */}
       <ToastContainer
         position="bottom-right"
         autoClose={5000}

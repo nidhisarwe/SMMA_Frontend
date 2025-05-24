@@ -1,4 +1,3 @@
-// CreateCampaign.jsx - Updated with proper authentication and user-specific data
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
@@ -55,72 +54,27 @@ export default function CreateCampaign() {
     const { name, theme, count, startDate, endDate } = formData;
 
     if (name.length < 3) {
-      toast.error('Campaign name must be at least 3 characters.', {
-        position: "top-right",
-        autoClose: 5000,
-        hideProgressBar: false,
-        closeOnClick: true,
-        pauseOnHover: true,
-        draggable: true,
-        progress: undefined,
-        theme: "colored",
-      });
+      toast.error('Campaign name must be at least 3 characters.');
       return false;
     }
 
     if (theme.length < 3) {
-      toast.error('Theme must be at least 3 characters.', {
-        position: "top-right",
-        autoClose: 5000,
-        hideProgressBar: false,
-        closeOnClick: true,
-        pauseOnHover: true,
-        draggable: true,
-        progress: undefined,
-        theme: "colored",
-      });
+      toast.error('Theme must be at least 3 characters.');
       return false;
     }
 
     if (count < 1 || count > 50) {
-      toast.error('Number of posts must be between 1 and 50.', {
-        position: "top-right",
-        autoClose: 5000,
-        hideProgressBar: false,
-        closeOnClick: true,
-        pauseOnHover: true,
-        draggable: true,
-        progress: undefined,
-        theme: "colored",
-      });
+      toast.error('Number of posts must be between 1 and 50.');
       return false;
     }
 
     if (!startDate || !endDate) {
-      toast.error('Please select both start and end dates.', {
-        position: "top-right",
-        autoClose: 5000,
-        hideProgressBar: false,
-        closeOnClick: true,
-        pauseOnHover: true,
-        draggable: true,
-        progress: undefined,
-        theme: "colored",
-      });
+      toast.error('Please select both start and end dates.');
       return false;
     }
 
     if (new Date(startDate) > new Date(endDate)) {
-      toast.error('End date must be after start date.', {
-        position: "top-right",
-        autoClose: 5000,
-        hideProgressBar: false,
-        closeOnClick: true,
-        pauseOnHover: true,
-        draggable: true,
-        progress: undefined,
-        theme: "colored",
-      });
+      toast.error('End date must be after start date.');
       return false;
     }
 
@@ -132,18 +86,8 @@ export default function CreateCampaign() {
 
     if (!validateForm()) return;
 
-    // Check if user is authenticated
     if (!currentUser) {
-      toast.error('You must be logged in to create a campaign', {
-        position: "top-right",
-        autoClose: 5000,
-        hideProgressBar: false,
-        closeOnClick: true,
-        pauseOnHover: true,
-        draggable: true,
-        progress: undefined,
-        theme: "colored",
-      });
+      toast.error('You must be logged in to create a campaign');
       navigate('/auth');
       return;
     }
@@ -151,143 +95,70 @@ export default function CreateCampaign() {
     try {
       setLoading(true);
       setProgress(0);
-      setError(null); // Clear any previous errors
+      setError(null);
 
-      // Show a toast to inform the user this might take some time
-      toast.info('Generating your campaign. This might take up to 2 minutes...', {
-        position: "top-right",
-        autoClose: 10000,
-        hideProgressBar: false,
-        closeOnClick: true,
-        pauseOnHover: true,
-        draggable: true,
-        progress: undefined,
-        theme: "colored",
-      });
+      toast.info('Generating your campaign. This might take up to 2 minutes...');
 
-      // Simulate progress updates with a slower pace to match the longer timeout
       progressIntervalRef.current = setInterval(() => {
         setProgress(prev => {
           if (prev >= 90) {
             clearInterval(progressIntervalRef.current);
             return prev;
           }
-          return prev + 3; // Slower progress to match the longer timeout
+          return prev + 3;
         });
       }, 1000);
 
-      console.log('Sending campaign creation request with data:', formData);
-      
-      // Use the authenticated API call which will include the user's token automatically
-      const response = await api.post('/plan-campaign/', formData);
-      
-      clearInterval(progressIntervalRef.current); // Clear interval when request completes
+      const payload = {
+        name: formData.name,
+        theme: formData.theme,
+        count: formData.count,
+        startDate: formData.startDate,
+        endDate: formData.endDate,
+      };
+      console.log('Sending campaign creation payload:', JSON.stringify(payload, null, 2));
+
+      const response = await api.post('/plan-campaign/', payload);
+
+      clearInterval(progressIntervalRef.current);
       setProgress(100);
 
-      console.log('Campaign creation response:', response.data);
+      console.log('Campaign creation response:', JSON.stringify(response.data, null, 2));
 
-      if (response.data && response.data.content) {
-        toast.success('Campaign generated successfully!', {
-          position: "top-right",
-          autoClose: 3000,
-          hideProgressBar: false,
-          closeOnClick: true,
-          pauseOnHover: true,
-          draggable: true,
-          progress: undefined,
-          theme: "colored",
-        });
-
+      if (response.data && response.data.campaign_id) {
+        toast.success('Campaign generated successfully!');
         setTimeout(() => {
-          // Navigate to the campaign page with the campaign ID
-          if (response.data.campaign_id) {
-            navigate(`/campaign/${response.data.campaign_id}`);
-          } else {
-            // Fallback to campaigns list
-            navigate('/saved-campaigns');
-          }
+          navigate(`/campaign/${response.data.campaign_id}`);
         }, 1500);
       } else {
-        throw new Error('Invalid response structure.');
+        throw new Error('Invalid response structure: Missing campaign_id');
       }
     } catch (err) {
       console.error('Campaign creation error:', err);
-      
-      // Clear any running progress interval
+
       if (progressIntervalRef.current) {
         clearInterval(progressIntervalRef.current);
-        progressIntervalRef.current = null;
       }
-      
-      // Handle specific error cases
+
+      let errorMessage = 'Error generating campaign. Please try again.';
       if (err.code === 'ECONNABORTED' || err.message.includes('timeout')) {
-        // Handle timeout errors specifically
-        toast.error('Campaign generation is taking longer than expected. Please try again with a simpler theme or fewer posts.', {
-          position: "top-right",
-          autoClose: 7000,
-          hideProgressBar: false,
-          closeOnClick: true,
-          pauseOnHover: true,
-          draggable: true,
-          progress: undefined,
-          theme: "colored",
-        });
-        
-        setError('The request timed out. The AI content generation might be taking too long. Try reducing the number of posts or simplifying your theme.');
+        errorMessage = 'Campaign generation timed out. Try a simpler theme or fewer posts.';
       } else if (err.response?.status === 401) {
-        toast.error('Session expired. Please log in again.', {
-          position: "top-right",
-          autoClose: 5000,
-          hideProgressBar: false,
-          closeOnClick: true,
-          pauseOnHover: true,
-          draggable: true,
-          progress: undefined,
-          theme: "colored",
-        });
+        errorMessage = 'Session expired. Please log in again.';
         navigate('/auth');
       } else if (err.response?.status === 400) {
-        toast.error(err.response.data?.detail || 'Invalid campaign data. Please check your inputs.', {
-          position: "top-right",
-          autoClose: 5000,
-          hideProgressBar: false,
-          closeOnClick: true,
-          pauseOnHover: true,
-          draggable: true,
-          progress: undefined,
-          theme: "colored",
-        });
+        errorMessage = err.response.data?.detail || 'Invalid campaign data.';
       } else if (err.response?.status === 500) {
-        toast.error('Server error while generating campaign. The system will use fallback content.', {
-          position: "top-right",
-          autoClose: 5000,
-          hideProgressBar: false,
-          closeOnClick: true,
-          pauseOnHover: true,
-          draggable: true,
-          progress: undefined,
-          theme: "colored",
-        });
-      } else {
-        toast.error('Error generating campaign. Please try again.', {
-          position: "top-right",
-          autoClose: 5000,
-          hideProgressBar: false,
-          closeOnClick: true,
-          pauseOnHover: true,
-          draggable: true,
-          progress: undefined,
-          theme: "colored",
-        });
-        
-        setError(err.message || 'An unexpected error occurred');
+        errorMessage = 'Server error. Please try again later.';
       }
+
+      toast.error(errorMessage);
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
   };
 
-  // Show loading if auth is loading
   if (authLoading) {
     return (
       <div className="flex min-h-screen bg-gray-50 font-[Poppins]">
@@ -301,7 +172,6 @@ export default function CreateCampaign() {
     );
   }
 
-  // Don't render if not authenticated (will be redirected)
   if (!currentUser) {
     return null;
   }
@@ -466,7 +336,6 @@ export default function CreateCampaign() {
         </div>
       </div>
 
-      {/* Enhanced Loading Overlay */}
       {loading && (
         <div className="fixed inset-0 bg-black/30 backdrop-blur-md flex items-center justify-center z-50 transition-all duration-300 ease-out">
           <div className="bg-white/90 p-8 rounded-2xl shadow-2xl border border-white/20 w-full max-w-md transform transition-all duration-300 scale-95 hover:scale-100">

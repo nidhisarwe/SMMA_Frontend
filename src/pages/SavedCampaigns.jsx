@@ -1,10 +1,9 @@
-// SavedCampaigns.jsx - FIXED to properly display campaigns
 import { api } from '../utils/api';
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
 import Navbar from '../components/Navbar';
-import { FiEye, FiPlay, FiEdit, FiTrash2, FiPlus, FiSearch, FiCalendar, FiFilter } from 'react-icons/fi';
+import { FiEye, FiPlay, FiEdit, FiTrash2, FiPlus, FiSearch, FiFilter } from 'react-icons/fi';
 import { toast, ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import { motion } from 'framer-motion';
@@ -17,11 +16,10 @@ const SavedCampaigns = () => {
   const [generating, setGenerating] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
-  
+
   const navigate = useNavigate();
   const { currentUser, loading: authLoading } = useAuth();
 
-  // Redirect if not authenticated
   useEffect(() => {
     if (!authLoading && !currentUser) {
       toast.error('You must be logged in to view campaigns');
@@ -40,115 +38,71 @@ const SavedCampaigns = () => {
     try {
       setLoading(true);
       setError('');
-      
-      // Use the correct API method from the api object
+
       const response = await api.campaigns.getAll();
-      console.log("📊 Raw campaigns response:", response.data);
-      
+      console.log("📊 Raw campaigns response:", JSON.stringify(response.data, null, 2));
+
       let campaignsData = Array.isArray(response.data) ? response.data : [];
-      
-      // Log all campaigns before filtering
+
       console.log(`🔍 Total campaigns before filtering: ${campaignsData.length}`);
-      
-      // Log the raw structure of each campaign for debugging
-      console.log("DEBUG: Full campaign data structure:");
+
       campaignsData.forEach((campaign, index) => {
-        console.log(`Campaign ${index + 1} ID: ${campaign._id}`);
-        console.log(`Campaign ${index + 1} Name: ${campaign.campaign_name || campaign.name}`);
-        console.log(`Campaign ${index + 1} has parsed_posts:`, !!campaign.parsed_posts);
-        if (campaign.parsed_posts) {
-          console.log(`Campaign ${index + 1} parsed_posts length:`, campaign.parsed_posts.length);
-        }
-        console.log(`Campaign ${index + 1} has content:`, !!campaign.content);
-        if (campaign.content) {
-          console.log(`Campaign ${index + 1} has content.parsed_posts:`, !!(campaign.content && campaign.content.parsed_posts));
-          if (campaign.content && campaign.content.parsed_posts) {
-            console.log(`Campaign ${index + 1} content.parsed_posts length:`, campaign.content.parsed_posts.length);
-          }
-        }
-        console.log(`Campaign ${index + 1} has posts:`, !!campaign.posts);
-        if (campaign.posts) {
-          console.log(`Campaign ${index + 1} posts length:`, Array.isArray(campaign.posts) ? campaign.posts.length : 'Not an array');
-        }
+        console.log(`Campaign ${index + 1} Details:`);
+        console.log(`ID: ${campaign._id}`);
+        console.log(`Name: ${campaign.campaign_name || campaign.name}`);
+        console.log(`Theme: ${campaign.theme || 'Not set'}`);
+        console.log(`Start Date: ${campaign.start_date || 'Not set'}`);
+        console.log(`End Date: ${campaign.end_date || 'Not set'}`);
+        console.log(`Parsed Posts: ${campaign.parsed_posts?.length || 0}`);
         console.log('-----------------------------------');
       });
-      
-      // Process each campaign to ensure it has the correct structure, but be more lenient
+
       const processedCampaigns = campaignsData.map(campaign => {
-        // Normalize campaign name
         const name = campaign.campaign_name || campaign.name || 'Unnamed Campaign';
-        
-        // Check for posts in different possible locations
+
         let parsedPosts = [];
-        
-        // Try to find posts in various locations in the data structure
-        if (campaign.parsed_posts && Array.isArray(campaign.parsed_posts) && campaign.parsed_posts.length > 0) {
+
+        if (campaign.parsed_posts && Array.isArray(campaign.parsed_posts)) {
           parsedPosts = campaign.parsed_posts;
           console.log(`Found ${parsedPosts.length} posts in campaign.parsed_posts for ${name}`);
-        } 
-        else if (campaign.content && campaign.content.parsed_posts && 
-                 Array.isArray(campaign.content.parsed_posts) && campaign.content.parsed_posts.length > 0) {
-          parsedPosts = campaign.content.parsed_posts;
-          console.log(`Found ${parsedPosts.length} posts in campaign.content.parsed_posts for ${name}`);
+        } else if (campaign.posts?.raw?.generated_posts) {
+          parsedPosts = campaign.posts.raw.generated_posts;
+          console.log(`Found ${parsedPosts.length} posts in campaign.posts.raw.generated_posts for ${name}`);
+        } else {
+          console.log(`No posts found for campaign: ${name}`);
         }
-        else if (campaign.posts && Array.isArray(campaign.posts) && campaign.posts.length > 0) {
-          parsedPosts = campaign.posts;
-          console.log(`Found ${parsedPosts.length} posts in campaign.posts for ${name}`);
-        }
-        else if (campaign.content && campaign.content.posts && 
-                 Array.isArray(campaign.content.posts) && campaign.content.posts.length > 0) {
-          parsedPosts = campaign.content.posts;
-          console.log(`Found ${parsedPosts.length} posts in campaign.content.posts for ${name}`);
-        }
-        else {
-          console.log(`No posts found in any location for campaign: ${name}`);
-        }
-        
+
         return {
           ...campaign,
           campaign_name: name,
-          parsed_posts: parsedPosts
+          parsed_posts: parsedPosts,
+          theme: campaign.theme || '',
+          start_date: campaign.start_date || '',
+          end_date: campaign.end_date || ''
         };
       });
-      
-      // Don't filter out any campaigns - we'll show all of them
-      // but mark empty ones with a visual indicator
-      const allCampaigns = processedCampaigns.map(campaign => {
-        // Add a flag to indicate if the campaign has posts
-        const hasPosts = campaign.parsed_posts && campaign.parsed_posts.length > 0;
-        return {
-          ...campaign,
-          isEmpty: !hasPosts
-        };
-      });
-      
-      // Log which campaigns are being included
-      allCampaigns.forEach(campaign => {
-        console.log(`Including campaign: ${campaign.campaign_name}, Posts: ${campaign.parsed_posts?.length || 0}, Empty: ${campaign.isEmpty}`);
-      });
-      
-      // Sort by creation date (newest first)
+
+      const allCampaigns = processedCampaigns.map(campaign => ({
+        ...campaign,
+        isEmpty: !campaign.parsed_posts || campaign.parsed_posts.length === 0
+      }));
+
       allCampaigns.sort((a, b) => {
         const dateA = new Date(a.created_at || a.createdAt || 0);
         const dateB = new Date(b.created_at || b.createdAt || 0);
         return dateB - dateA;
       });
-      
+
       setCampaigns(allCampaigns);
-      console.log(`✅ Found ${allCampaigns.length} campaigns total`);
-      console.log(`✅ ${allCampaigns.filter(c => !c.isEmpty).length} campaigns have posts`);
-      console.log(`✅ ${allCampaigns.filter(c => c.isEmpty).length} campaigns are empty`);
-      
+      console.log(`✅ Set ${allCampaigns.length} campaigns`);
+
       if (allCampaigns.length === 0) {
-        console.log("⚠️ No campaigns found. This might indicate an issue with the data structure.");
+        console.log("⚠️ No campaigns found.");
       }
     } catch (error) {
       console.error('Error fetching campaigns:', error);
       setError(error.message || 'Failed to load campaigns');
-      toast.error('Failed to load campaigns', {
-        position: "top-right",
-        autoClose: 5000,
-      });
+      toast.error('Failed to load campaigns');
       setCampaigns([]);
     } finally {
       setLoading(false);
@@ -156,108 +110,77 @@ const SavedCampaigns = () => {
   };
 
   const handleViewCampaign = (campaignId) => {
-    // Navigate to view campaign (not edit mode to prevent duplicate creation)
     navigate(`/campaign/${campaignId}?mode=view`);
   };
 
   const handleEditCampaign = (campaignId) => {
-    // Navigate to edit mode
     navigate(`/campaign/${campaignId}?mode=edit`);
   };
 
   const handleGenerateContent = async (campaignId) => {
-  if (generating) return;
-  
-  setGenerating(campaignId);
-  try {
-    // Get the campaign data to extract the first post
-    const campaign = campaigns.find(c => c._id === campaignId);
-    
-    if (!campaign) {
-      toast.error('Campaign not found');
-      setGenerating(null);
-      return;
-    }
-    
-    // Check if the campaign has posts
-    const hasPosts = campaign.parsed_posts && campaign.parsed_posts.length > 0;
-    
-    if (hasPosts) {
-      // Get the first post from the campaign
-      const firstPost = campaign.parsed_posts[0];
-      
-      // Navigate to CreatePost with the first post data
-      navigate('/create-post', {
-        state: {
-          campaignData: {
-            campaignId: campaign._id,
-            campaignName: campaign.campaign_name,
-            postData: firstPost,
-            currentPostIndex: 0,
-            totalPosts: campaign.parsed_posts.length
-          }
-        }
-      });
-      
-      toast.success('Loading campaign post in editor...', {
-        position: "top-right",
-        autoClose: 3000,
-      });
-    } else {
-      // If no posts, generate content first
-      const toastId = toast.loading('Generating campaign content...');
-      
-      // Use the api.campaigns object directly
-      const result = await api.campaigns.generateContent(campaignId);
-      
-      if (result.success) {
-        toast.update(toastId, {
-          render: result.data.message || 'Content generated successfully!',
-          type: 'success',
-          isLoading: false,
-          autoClose: 3000,
-        });
-        
-        // Refresh campaigns list and then navigate
-        await fetchCampaigns();
-        
-        // Get the updated campaign with generated posts
-        const updatedCampaign = await api.campaigns.getById(campaignId);
-        
-        if (updatedCampaign.success && updatedCampaign.data.parsed_posts?.length > 0) {
-          const firstPost = updatedCampaign.data.parsed_posts[0];
-          
-          // Navigate to CreatePost with the first post data
-          navigate('/create-post', {
-            state: {
-              campaignData: {
-                campaignId: updatedCampaign.data.id,
-                campaignName: updatedCampaign.data.campaign_name,
-                postData: firstPost,
-                currentPostIndex: 0,
-                totalPosts: updatedCampaign.data.parsed_posts.length
-              }
+    if (generating) return;
+
+    setGenerating(campaignId);
+    try {
+      const campaign = campaigns.find(c => c._id === campaignId);
+
+      if (!campaign) {
+        toast.error('Campaign not found');
+        return;
+      }
+
+      const hasPosts = campaign.parsed_posts && campaign.parsed_posts.length > 0;
+
+      if (hasPosts) {
+        const firstPost = campaign.parsed_posts[0];
+
+        navigate('/create-post', {
+          state: {
+            campaignData: {
+              campaignId: campaign._id,
+              campaignName: campaign.campaign_name,
+              postData: firstPost,
+              currentPostIndex: 0,
+              totalPosts: campaign.parsed_posts.length
             }
-          });
-        } else {
-          toast.error('No posts were generated for this campaign');
-        }
+          }
+        });
+
+        toast.success('Loading campaign post in editor...');
       } else {
-        if (result.status === 401) {
+        const toastId = toast.loading('Generating campaign content...');
+
+        const result = await api.campaigns.generateContent(campaignId);
+
+        if (result.success) {
           toast.update(toastId, {
-            render: 'Session expired. Please log in again.',
-            type: 'error',
+            render: result.data.message || 'Content generated successfully!',
+            type: 'success',
             isLoading: false,
             autoClose: 3000,
           });
-          navigate('/auth');
-        } else if (result.status === 404) {
-          toast.update(toastId, {
-            render: 'Campaign not found or you do not have permission to access it.',
-            type: 'error',
-            isLoading: false,
-            autoClose: 3000,
-          });
+
+          await fetchCampaigns();
+
+          const updatedCampaign = await api.campaigns.getById(campaignId);
+
+          if (updatedCampaign.success && updatedCampaign.data.parsed_posts?.length > 0) {
+            const firstPost = updatedCampaign.data.parsed_posts[0];
+
+            navigate('/create-post', {
+              state: {
+                campaignData: {
+                  campaignId: updatedCampaign.data._id,
+                  campaignName: updatedCampaign.data.campaign_name,
+                  postData: firstPost,
+                  currentPostIndex: 0,
+                  totalPosts: updatedCampaign.data.parsed_posts.length
+                }
+              }
+            });
+          } else {
+            toast.error('No posts were generated for this campaign');
+          }
         } else {
           toast.update(toastId, {
             render: result.message || 'Failed to generate content',
@@ -267,129 +190,73 @@ const SavedCampaigns = () => {
           });
         }
       }
+    } catch (error) {
+      console.error('Error generating content:', error);
+      toast.error('An unexpected error occurred');
+    } finally {
+      setGenerating(null);
     }
-  } catch (error) {
-    console.error('Unexpected error generating content:', error);
-    toast.error('An unexpected error occurred while generating content', {
-      position: "top-right",
-      autoClose: 5000,
-    });
-  } finally {
-    setGenerating(null);
-  }
-};
+  };
 
   const handleDeleteCampaign = async (campaignId) => {
-  const campaign = campaigns.find(c => c._id === campaignId);
-  const confirmMessage = `Are you sure you want to delete "${campaign?.campaign_name || 'this campaign'}"? This action cannot be undone.`;
-  
-  if (!window.confirm(confirmMessage)) {
-    return;
-  }
-  
-  try {
-    console.log(`Attempting to delete campaign with ID: ${campaignId}`);
-    
-    // Show loading toast
-    const toastId = toast.loading('Deleting campaign...');
-    
-    // Use the api.campaigns object directly
-    const result = await api.campaigns.delete(campaignId);
-    
-    if (result.success) {
-      // Remove campaign from local state
-      setCampaigns(campaigns.filter(c => c._id !== campaignId));
-      
-      toast.update(toastId, {
-        render: 'Campaign deleted successfully!',
-        type: 'success',
-        isLoading: false,
-        autoClose: 3000,
-      });
-      
-      // Refresh campaigns list
-      fetchCampaigns();
-    } else {
-      if (result.status === 401) {
-        toast.update(toastId, {
-          render: 'Session expired. Please log in again.',
-          type: 'error',
-          isLoading: false,
-          autoClose: 3000,
-        });
-        navigate('/auth');
-      } else if (result.status === 404) {
-        toast.update(toastId, {
-          render: 'Campaign not found or already deleted.',
-          type: 'warning',
-          isLoading: false,
-          autoClose: 3000,
-        });
-        // Remove from local state anyway
-        setCampaigns(campaigns.filter(c => c._id !== campaignId));
-      } else {
-        toast.update(toastId, {
-          render: result.message || 'Failed to delete campaign',
-          type: 'error',
-          isLoading: false,
-          autoClose: 5000,
-        });
-      }
-    }
-  } catch (error) {
-    console.error('Unexpected error deleting campaign:', error);
-    toast.error('An unexpected error occurred while deleting campaign', {
-      position: "top-right",
-      autoClose: 5000,
-    });
-  }
-};
+    const campaign = campaigns.find(c => c._id === campaignId);
+    const confirmMessage = `Are you sure you want to delete "${campaign?.campaign_name || 'this campaign'}"? This action cannot be undone.`;
 
-  const formatDate = (dateString) => {
-    if (!dateString) return 'Not set';
+    if (!window.confirm(confirmMessage)) {
+      return;
+    }
 
     try {
-      let date = new Date(dateString);
+      console.log(`Attempting to delete campaign ID: ${campaignId}`);
 
-      if (isNaN(date.getTime())) {
-        // Try parsing custom format
-        const parts = dateString.match(/(\w+) (\d+) at (\d+):(\d+) (AM|PM)/);
-        if (parts) {
-          const months = {
-            January: 0, February: 1, March: 2, April: 3, May: 4, June: 5,
-            July: 6, August: 7, September: 8, October: 9, November: 10, December: 11
-          };
+      const toastId = toast.loading('Deleting campaign...');
 
-          const month = months[parts[1]];
-          const day = parseInt(parts[2]);
-          let hours = parseInt(parts[3]);
-          const minutes = parseInt(parts[4]);
-          const period = parts[5];
+      // Optimistically update the UI
+      const previousCampaigns = campaigns;
+      setCampaigns(campaigns.filter(c => c._id !== campaignId));
 
-          if (period === 'PM' && hours < 12) hours += 12;
-          if (period === 'AM' && hours === 12) hours = 0;
+      const response = await api.campaigns.delete(campaignId);
+      console.log('Delete API response:', JSON.stringify(response, null, 2));
 
-          date = new Date(new Date().getFullYear(), month, day, hours, minutes);
-        }
+      if (response.success || response.status === 200 || response.status === 204) {
+        toast.update(toastId, {
+          render: 'Campaign deleted successfully!',
+          type: 'success',
+          isLoading: false,
+          autoClose: 3000,
+        });
+      } else {
+        throw new Error(response.data?.message || 'Failed to delete campaign');
       }
+    } catch (error) {
+      console.error('Error deleting campaign:', error);
+      // Revert optimistic update
+      setCampaigns(previousCampaigns);
+      toast.update(toastId, {
+        render: error.message || 'Failed to delete campaign',
+        type: 'error',
+        isLoading: false,
+        autoClose: 5000,
+      });
+    }
+  };
 
+  const formatDate = (dateString) => {
+    if (!dateString || dateString === '') return 'Not set';
+    try {
+      const date = new Date(dateString);
       if (isNaN(date.getTime())) return 'Invalid date';
-
-      const options = {
+      return date.toLocaleDateString(undefined, {
         month: 'short',
         day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: true
-      };
-      return date.toLocaleString(undefined, options);
+        year: 'numeric'
+      });
     } catch (error) {
-      console.error('Error formatting date:', error);
+      console.error('Error formatting date:', dateString, error);
       return 'Invalid date';
     }
   };
 
-  // Enhanced filtering logic
   const filteredCampaigns = campaigns.filter(campaign => {
     const matchesSearch = campaign.campaign_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          campaign.theme?.toLowerCase().includes(searchTerm.toLowerCase());
@@ -404,7 +271,6 @@ const SavedCampaigns = () => {
     { value: 'completed', label: 'Completed' }
   ];
 
-  // Calculate stats from unique campaigns
   const stats = {
     total: campaigns.length,
     active: campaigns.filter(c => c.status === 'active').length,
@@ -440,7 +306,6 @@ const SavedCampaigns = () => {
 
         <main className="flex-1 overflow-y-auto p-8">
           <div className="max-w-7xl mx-auto">
-            {/* Header Section */}
             <div className="flex flex-col md:flex-row items-start md:items-center justify-between mb-8 gap-6">
               <div>
                 <h1 className="text-3xl font-bold text-gray-800">
@@ -462,7 +327,6 @@ const SavedCampaigns = () => {
               </button>
             </div>
 
-            {/* Search and Filter Section */}
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 mb-6">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="relative">
@@ -505,7 +369,6 @@ const SavedCampaigns = () => {
               </div>
             </div>
 
-            {/* Stats Cards */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
               <motion.div whileHover={{ scale: 1.02 }} className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
                 <h3 className="text-sm font-medium text-gray-500">Total Campaigns</h3>
@@ -528,7 +391,6 @@ const SavedCampaigns = () => {
               </motion.div>
             </div>
 
-            {/* Campaigns List */}
             {loading ? (
               <div className="flex flex-col items-center justify-center py-12">
                 <div className="animate-spin rounded-full h-20 w-20 border-t-4 border-b-4 border-indigo-600 mb-4"></div>
@@ -554,8 +416,8 @@ const SavedCampaigns = () => {
                   {searchTerm ? 'No campaigns match your search' : 'No campaigns found'}
                 </h3>
                 <p className="text-gray-500 mt-2 max-w-md mx-auto">
-                  {searchTerm 
-                    ? 'Try adjusting your search terms or filters.' 
+                  {searchTerm
+                    ? 'Try adjusting your search terms or filters.'
                     : 'Create your first campaign to get started with AI-powered content generation.'
                   }
                 </p>
@@ -571,7 +433,7 @@ const SavedCampaigns = () => {
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {filteredCampaigns.map((campaign) => (
                   <motion.div
-                    key={`${campaign._id}-${campaign.created_at}`} // More unique key
+                    key={`${campaign._id}-${campaign.created_at}`}
                     whileHover={{ y: -5 }}
                     className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden hover:shadow-md transition-all duration-300"
                   >
@@ -599,9 +461,7 @@ const SavedCampaigns = () => {
                         <div>
                           <p className="text-sm text-gray-500">Posts</p>
                           <p className="text-lg font-semibold text-gray-800">
-                            {campaign.post_count || 
-                             (campaign.posts?.length || 0) + (campaign.parsed_posts?.length || 0) || 
-                             0}
+                            {campaign.post_count || campaign.parsed_posts?.length || 0}
                           </p>
                         </div>
                         <div>
@@ -612,27 +472,27 @@ const SavedCampaigns = () => {
                         </div>
                       </div>
 
-                      <div className="bg-gray-50 rounded-lg p-3 mb-4 border border-gray-200">
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="flex-1">
+                      <div className="bg-gray-50 rounded-lg p-4 mb-4 border border-gray-200">
+                        <div className="grid grid-cols-1 gap-3">
+                          <div>
                             <p className="text-xs font-medium text-gray-500 mb-1">Theme</p>
                             <p className="text-sm font-semibold text-indigo-600">
-                              {campaign.theme ? campaign.theme : 'Not set'}
+                              {campaign.theme || 'Not set'}
                             </p>
                           </div>
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <div className="flex-1">
-                            <p className="text-xs font-medium text-gray-500 mb-1">Start Date</p>
-                            <p className="text-sm font-semibold text-indigo-600">
-                              {campaign.start_date ? formatDate(campaign.start_date) : 'Not set'}
-                            </p>
-                          </div>
-                          <div className="flex-1">
-                            <p className="text-xs font-medium text-gray-500 mb-1">End Date</p>
-                            <p className="text-sm font-semibold text-indigo-600">
-                              {campaign.end_date ? formatDate(campaign.end_date) : 'Not set'}
-                            </p>
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <p className="text-xs font-medium text-gray-500 mb-1">Start Date</p>
+                              <p className="text-sm font-semibold text-indigo-600">
+                                {formatDate(campaign.start_date)}
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-xs font-medium text-gray-500 mb-1">End Date</p>
+                              <p className="text-sm font-semibold text-indigo-600">
+                                {formatDate(campaign.end_date)}
+                              </p>
+                            </div>
                           </div>
                         </div>
                       </div>
