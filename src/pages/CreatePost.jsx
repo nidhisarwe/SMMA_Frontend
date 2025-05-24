@@ -1,3 +1,4 @@
+import apiClient from '../api/apiClient';
 import { api } from '../utils/api';
 import { auth } from "../firebase/config";
 import React, { useState, useEffect } from "react";
@@ -1071,12 +1072,21 @@ const CreatePost = () => {
         prompt: prompt || "",
       };
 
-      console.log("📝 Saving draft with data:", draftData);
-      const response = await axios.post("http://127.0.0.1:8000/api/save-draft/", draftData, {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
-      });
+      // Get current user for logging
+      const user = auth.currentUser;
+      if (!user) {
+        throw new Error("You must be logged in to save drafts");
+      }
+      
+      // Add user_id to draft data for extra validation
+      draftData.user_id = user.uid;
+      
+      console.log(`📝 Saving draft for user: ${user.uid}`);
+      console.log("Draft data:", draftData);
+      
+      // Use the configured API client which automatically handles authentication
+      // Import is 'import apiClient from "../api/apiClient"' at the top of the file
+      const response = await apiClient.post("/save-draft/", draftData);
 
       toast.update(toastId, {
         render: "Draft saved successfully!",
@@ -1092,8 +1102,21 @@ const CreatePost = () => {
       navigate("/drafts-page");
     } catch (error) {
       console.error("Error saving draft:", error);
+      
+      let errorMessage = "Failed to save draft. Please try again.";
+      
+      if (error.message === "You must be logged in to save drafts") {
+        errorMessage = "Please log in to save drafts";
+        navigate('/auth'); // Redirect to auth page
+      } else if (error.response?.status === 401) {
+        errorMessage = "Authentication required. Please log in again.";
+        navigate('/auth'); // Redirect to auth page on 401
+      } else if (error.response?.status === 403) {
+        errorMessage = "You don't have permission to save drafts";
+      }
+      
       toast.update(toastId, {
-        render: "Failed to save draft. Please try again.",
+        render: errorMessage,
         type: "error",
         isLoading: false,
         autoClose: 5000,

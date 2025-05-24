@@ -184,16 +184,25 @@ const SocialDashboard = () => {
       setDisconnecting(accountId);
       console.log(`🔄 Disconnecting account ${accountId} for authenticated user...`);
       
-      await api.delete(`/linkedin/accounts/${accountId}`);
+      // Ensure we're using a valid ID format
+      if (!accountId) {
+        throw new Error("Invalid account ID");
+      }
       
-      console.log("✅ Account disconnected successfully");
+      // Make sure we're using the correct endpoint
+      const response = await api.delete(`/linkedin/accounts/${accountId}`);
+      
+      console.log("✅ Account disconnected successfully:", response.data);
       setSuccessMessage("LinkedIn account disconnected successfully");
       setTimeout(() => setSuccessMessage(""), 5000);
       
+      // Refresh the accounts list
       await fetchConnectedAccounts();
       
     } catch (error) {
       console.error("❌ Error disconnecting account:", error);
+      console.error("Error details:", error.response?.data || error.message);
+      
       if (error.response?.status === 401) {
         setError("Authentication issue. Please refresh the page.");
         setTimeout(() => setError(null), 5000);
@@ -201,9 +210,12 @@ const SocialDashboard = () => {
         setError("You don't have permission to disconnect this account.");
       } else if (error.response?.status === 404) {
         setError("Account not found or already disconnected.");
+      } else if (error.response?.status === 400) {
+        setError("Invalid account ID format. Please try again.");
       } else {
-        setError("Failed to disconnect account");
+        setError(`Failed to disconnect account: ${error.response?.data?.detail || error.message}`);
       }
+      setTimeout(() => setError(null), 5000);
     } finally {
       setDisconnecting(null);
     }
@@ -579,12 +591,19 @@ const SocialDashboard = () => {
                           <FaCheck />
                         </span>
                         <button
-                          onClick={() => handleDisconnect(account._id || account.account_id)}
+                          onClick={() => {
+                            // Use the correct account ID - prioritize _id, then account_id, then id
+                            const accountIdToUse = account._id || account.account_id || account.id;
+                            console.log("Using account ID for disconnect:", accountIdToUse);
+                            handleDisconnect(accountIdToUse);
+                          }}
                           className="text-gray-400 hover:text-red-500 transition-colors"
                           title="Disconnect"
-                          disabled={disconnecting === account._id}
+                          disabled={disconnecting === (account._id || account.account_id || account.id)}
                         >
-                          {disconnecting === account._id ? <FaSpinner className="animate-spin" /> : <FaTimes />}
+                          {disconnecting === (account._id || account.account_id || account.id) ? 
+                            <FaSpinner className="animate-spin" /> : 
+                            <FaTimes />}
                         </button>
                       </div>
                     </motion.div>

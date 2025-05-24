@@ -6,14 +6,9 @@ import moment from "moment";
 import "moment-timezone";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
-import axios from "axios";
-import api from "../utils/api";
-import apiClient from "../api/apiClient";
+import { api } from "../utils/api"; // Use the centralized API
 import Navbar from "../components/Navbar";
 import Sidebar from "../components/Sidebar";
-
-// API base URL for direct axios calls
-const API_BASE_URL = "http://localhost:8000/api";
 import {
   FiPlus, FiClock, FiX, FiChevronLeft, FiChevronRight,
   FiCalendar, FiFilter, FiRefreshCw, FiUpload, FiDownload,
@@ -34,12 +29,17 @@ moment.tz.setDefault("Asia/Kolkata");
 ChartJS.register(ArcElement, Tooltip, Legend);
 
 const localizer = momentLocalizer(moment);
-const API_URL = "/scheduled-posts";
 
 const CalendarPage = () => {
   const location = useLocation();
   const navigate = useNavigate();
-  const { caption, image_url, platform, is_carousel } = location.state || {};
+  
+  // FIXED: Get post data from CreatePost page navigation
+  const postData = location.state || {};
+  const { caption, image_url, platform, is_carousel } = postData;
+  
+  console.log("📥 Location state received:", postData);
+  
   const fileInputRef = useRef(null);
 
   const [events, setEvents] = useState([]);
@@ -87,161 +87,106 @@ const CalendarPage = () => {
     return moment.utc(utcDateString).tz("Asia/Kolkata").toDate();
   };
 
-  // Effect to auto-open schedule form if post data is passed from previous page
+  // FIXED: Auto-open schedule form if post data is passed from CreatePost
   useEffect(() => {
-    if (location.state && location.state.draftData) {
-      // If we have draft data from the DraftsPage, use it
-      const { content, image_url: draftImageUrl, platform: draftPlatform, is_carousel: draftIsCarousel } = location.state.draftData;
-      
-      // Set the form data from the draft
+    if (caption && image_url && platform) {
+      console.log("✅ Post data found, opening schedule form");
+      // Set default time to next 15-minute interval
       const now = new Date();
       const defaultDate = new Date(now);
-      defaultDate.setMinutes(Math.ceil(now.getMinutes() / 15) * 15); // Round up to nearest 15 minutes
-      
-      setSelectedDate(defaultDate);
-      setSelectedTime(defaultDate);
-      setShowScheduleForm(true);
-      
-      // Update the URL to remove the draft data from the location state
-      window.history.replaceState({}, document.title);
-      
-    } else if (location.state && location.state.fromDrafts && caption && image_url && platform) {
-      // Only allow scheduling if coming from drafts page
-      const now = new Date();
-      const defaultDate = new Date(now);
-      defaultDate.setMinutes(Math.ceil(now.getMinutes() / 15) * 15); // Round up to nearest 15 minutes
+      defaultDate.setMinutes(Math.ceil(now.getMinutes() / 15) * 15);
       
       setSelectedDate(defaultDate);
       setSelectedTime(defaultDate);
       setShowScheduleForm(true);
     }
-  }, [caption, image_url, platform, location.state]);
+  }, [caption, image_url, platform]);
 
-  // Fetch scheduled posts, statistics and connected accounts
-  // Replace the fetchData useEffect in your CalendarPage.jsx with this:
-
-useEffect(() => {
+  // FIXED: Fetch data with proper error handling
   const fetchData = async () => {
     try {
       setIsLoading(true);
+      console.log("🔄 Fetching calendar data...");
+      
       const [eventsRes, statsRes, teamRes, accountsRes] = await Promise.all([
-        api.get("/scheduled-posts"),
-        api.get("/scheduled-posts-stats/"),
-        api.get("/team-members"),
-        api.get("/accounts/")
+        api.posts.getScheduled().catch(err => {
+          console.warn("⚠️ Failed to fetch posts:", err);
+          return { data: { posts: [] } };
+        }),
+        api.posts.getStats().catch(err => {
+          console.warn("⚠️ Failed to fetch stats:", err);
+          return { data: { total_posts: 0, by_platform: {}, by_status: {} } };
+        }),
+        api.get("/team-members").catch(err => {
+          console.warn("⚠️ Failed to fetch team members:", err);
+          return { data: [] };
+        }),
+        api.accounts.getConnected().catch(err => {
+          console.warn("⚠️ Failed to fetch accounts:", err);
+          return { data: { accounts: [] } };
+        })
       ]);
 
-      console.log("Raw API responses:", {
+      console.log("📊 API Responses:", {
         events: eventsRes.data,
         stats: statsRes.data,
         teams: teamRes.data,
         accounts: accountsRes.data
       });
 
-      // Handle different response structures for events
+      // Process events data
       let eventsData = [];
       if (eventsRes.data) {
         if (Array.isArray(eventsRes.data)) {
-          // Direct array response
           eventsData = eventsRes.data;
         } else if (eventsRes.data.posts && Array.isArray(eventsRes.data.posts)) {
-          // Nested posts array
           eventsData = eventsRes.data.posts;
-        } else if (eventsRes.data.data && Array.isArray(eventsRes.data.data)) {
-          // Nested data array
-          eventsData = eventsRes.data.data;
-        } else {
-          console.warn("Unexpected events response structure:", eventsRes.data);
-          eventsData = [];
         }
       }
 
-      // Process events - Convert UTC to IST
-      const processedEvents = eventsData.map((post) => ({
-        id: post.id || post._id,
-        title: (post.caption || post.content || "Untitled Post").length > 30 
-          ? (post.caption || post.content || "Untitled Post").slice(0, 30) + "..." 
-          : (post.caption || post.content || "Untitled Post"),
-        start: post.scheduled_time ? convertToIST(post.scheduled_time) : new Date(),
-        end: post.scheduled_time 
-          ? new Date(convertToIST(post.scheduled_time).getTime() + 30 * 60000)
-          : new Date(Date.now() + 30 * 60000),
-        allDay: false,
-        platform: post.platform || "unknown",
-        caption: post.caption || post.content || "",
-        image_url: post.image_url || post.image_urls || null,
-        status: post.status || "scheduled",
-        is_carousel: post.is_carousel || false,
-        assigned_to: post.assigned_to || null,
-        tags: post.tags || []
-      }));
+      // Convert to calendar events with proper IST conversion
+      const processedEvents = eventsData.map((post) => {
+        const scheduledTime = post.scheduled_time ? convertToIST(post.scheduled_time) : new Date();
+        
+        return {
+          id: post.id || post._id,
+          title: (post.caption || post.content || "Untitled Post").length > 30 
+            ? (post.caption || post.content || "Untitled Post").slice(0, 30) + "..." 
+            : (post.caption || post.content || "Untitled Post"),
+          start: scheduledTime,
+          end: new Date(scheduledTime.getTime() + 30 * 60000), // 30 minutes later
+          allDay: false,
+          platform: post.platform || "unknown",
+          caption: post.caption || post.content || "",
+          image_url: post.image_url || post.image_urls || null,
+          status: post.status || "scheduled",
+          is_carousel: post.is_carousel || false,
+          assigned_to: post.assigned_to || null,
+          tags: post.tags || []
+        };
+      });
 
       setEvents(processedEvents);
       setFilteredEvents(processedEvents);
 
-      // Handle stats response structure
-      let processedStats = {
-        totalPosts: 0,
-        byPlatform: {},
-        byStatus: {}
-      };
+      // Process statistics
+      const statsData = statsRes.data || {};
+      setStats({
+        totalPosts: statsData.total_posts || 0,
+        byPlatform: statsData.by_platform || {},
+        byStatus: statsData.by_status || {}
+      });
 
-      if (statsRes.data) {
-        if (typeof statsRes.data.total_posts !== 'undefined') {
-          // New API structure
-          processedStats = {
-            totalPosts: statsRes.data.total_posts || 0,
-            byPlatform: statsRes.data.by_platform || {},
-            byStatus: statsRes.data.by_status || {}
-          };
-        } else {
-          // Calculate stats from events if API doesn't provide them
-          processedStats.totalPosts = processedEvents.length;
-          
-          processedEvents.forEach(event => {
-            // Platform stats
-            if (event.platform) {
-              processedStats.byPlatform[event.platform] = (processedStats.byPlatform[event.platform] || 0) + 1;
-            }
-            // Status stats
-            if (event.status) {
-              processedStats.byStatus[event.status] = (processedStats.byStatus[event.status] || 0) + 1;
-            }
-          });
-        }
-      }
+      // Process team members
+      setTeamMembers(Array.isArray(teamRes.data) ? teamRes.data : []);
 
-      setStats(processedStats);
-
-      // Handle team members response
-      let processedTeamMembers = [];
-      if (teamRes.data) {
-        if (Array.isArray(teamRes.data)) {
-          processedTeamMembers = teamRes.data;
-        } else if (teamRes.data.members && Array.isArray(teamRes.data.members)) {
-          processedTeamMembers = teamRes.data.members;
-        } else {
-          // Default team members if none available
-          processedTeamMembers = [
-            { id: "1", username: "user1", name: "John Doe" },
-            { id: "2", username: "user2", name: "Jane Smith" }
-          ];
-        }
-      }
-
-      setTeamMembers(processedTeamMembers);
-
-      // Handle connected accounts response
-      let processedAccounts = [];
-      if (accountsRes.data && accountsRes.data.accounts) {
-        processedAccounts = accountsRes.data.accounts;
-      }
-
-      setConnectedAccounts(processedAccounts);
+      // Process connected accounts
+      const accountsData = accountsRes.data?.accounts || [];
+      setConnectedAccounts(accountsData);
 
       // Check if we have a connected account for the current platform
       if (platform) {
-        const hasAccount = processedAccounts.some(
+        const hasAccount = accountsData.some(
           acc => acc.platform && 
                  acc.platform.toLowerCase() === platform.toLowerCase() && 
                  (acc.is_active === true || acc.is_active === undefined)
@@ -252,21 +197,15 @@ useEffect(() => {
         }
       }
 
-      console.log("Processed data:", {
-        events: processedEvents.length,
-        stats: processedStats,
-        accounts: processedAccounts.length,
-        teamMembers: processedTeamMembers.length
-      });
+      console.log("✅ Data loaded successfully");
 
     } catch (error) {
-      console.error("Error fetching data:", error);
+      console.error("❌ Error fetching data:", error);
       
-      // Better error handling
       if (error.response?.status === 401) {
         toast.error("Please log in to view calendar data");
       } else if (error.response?.status === 404) {
-        // Handle 404 errors gracefully - set empty data
+        // Handle 404 gracefully
         setEvents([]);
         setFilteredEvents([]);
         setStats({ totalPosts: 0, byPlatform: {}, byStatus: {} });
@@ -275,26 +214,25 @@ useEffect(() => {
         toast.info("No data found - you can start by creating your first post!");
       } else {
         toast.error("Failed to load calendar data");
-        console.error("Full error:", error.response || error);
       }
     } finally {
       setIsLoading(false);
     }
   };
 
-  fetchData();
-}, [platform]);
+  // Load data on component mount and when platform changes
+  useEffect(() => {
+    fetchData();
+  }, [platform]);
 
-  // Apply filters whenever events, activeFilter, searchQuery, or selectedTeamMember changes
+  // Apply filters whenever events change
   useEffect(() => {
     let result = [...events];
 
-    // Apply platform filter
     if (activeFilter !== "all") {
       result = result.filter(event => event.platform === activeFilter);
     }
 
-    // Apply search filter
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
       result = result.filter(event =>
@@ -303,7 +241,6 @@ useEffect(() => {
       );
     }
 
-    // Apply team member filter
     if (selectedTeamMember !== "all") {
       result = result.filter(event => event.assigned_to === selectedTeamMember);
     }
@@ -311,7 +248,7 @@ useEffect(() => {
     setFilteredEvents(result);
   }, [events, activeFilter, searchQuery, selectedTeamMember]);
 
-  // Schedule a new post
+  // FIXED: Schedule post and stay on calendar page
   const schedulePost = async () => {
     if (!caption || !image_url || !platform) {
       toast.warning("Missing post data. Please create a post first.");
@@ -341,22 +278,33 @@ useEffect(() => {
     }
 
     try {
-    setIsModalLoading(true);
+      setIsModalLoading(true);
 
-    // Convert IST to UTC for API
-    const scheduledUTC = moment.tz(scheduledDateTime, "Asia/Kolkata").utc().format();
+      // Convert IST to UTC for API
+      const scheduledUTC = moment.tz(scheduledDateTime, "Asia/Kolkata").utc().format();
 
-    // Use api instead of axios
-    const response = await api.post("/schedule-post/", {
-      caption,
-      image_url: is_carousel ? image_url : image_url,
-      platform,
-      scheduled_time: scheduledUTC,
-      is_carousel,
-      user_id: "current_user_id",
-      tags: ["scheduled"]
-    });
+      console.log("📅 Scheduling post:", {
+        caption: caption.substring(0, 50) + "...",
+        platform,
+        scheduled_time: scheduledUTC,
+        is_carousel
+      });
 
+      // Use the centralized API for scheduling
+      const response = await api.posts.schedule({
+        caption,
+        image_url: is_carousel ? image_url : image_url,
+        platform,
+        scheduled_time: scheduledUTC,
+        is_carousel,
+        tags: ["scheduled"],
+        from_draft_id: location.state?.from_draft_id, // Include draft ID if coming from drafts page
+        source: "calendar" // Explicitly mark as coming from calendar
+      });
+
+      console.log("✅ Post scheduled successfully:", response.data);
+
+      // Create new event for the calendar
       const newEvent = {
         id: response.data.id,
         title: caption.length > 30 ? caption.slice(0, 30) + "..." : caption,
@@ -371,9 +319,11 @@ useEffect(() => {
         tags: ["scheduled"]
       };
 
-      setEvents([...events, newEvent]);
+      // FIXED: Update events and stay on calendar page
+      setEvents(prev => [...prev, newEvent]);
+      setFilteredEvents(prev => [...prev, newEvent]);
 
-      // Show confetti on success
+      // Show success animation
       setShowConfetti(true);
       setTimeout(() => setShowConfetti(false), 3000);
 
@@ -394,55 +344,50 @@ useEffect(() => {
         }
       }));
 
-      // Navigate back to the create post page to start fresh
-      navigate("/create-post", {
-        state: {
-          scheduleSuccess: true,
-          scheduledTime: scheduledDateTime.toISOString()
-        }
-      });
+      // FIXED: Clear the location state to prevent auto-opening schedule form again
+      window.history.replaceState({}, document.title);
+      
+      // FIXED: No navigation - stay on calendar page
+      console.log("🎯 Post scheduled successfully - staying on calendar page");
+      
     } catch (error) {
-    console.error("Error scheduling post:", error);
-    
-    // Better error handling
-    if (error.response?.status === 401) {
-      toast.error("Please log in to schedule posts");
-    } else {
+      console.error("❌ Error scheduling post:", error);
+      
       let errorMessage = "Failed to schedule post. Please try again.";
       if (error.response?.data?.detail) {
         errorMessage = error.response.data.detail;
+      } else if (error.response?.status === 401) {
+        errorMessage = "Please log in to schedule posts";
       }
+      
       toast.error(errorMessage);
+    } finally {
+      setIsModalLoading(false);
     }
-  } finally {
-    setIsModalLoading(false);
-  }
-};
+  };
 
-  // Delete a scheduled post
+  // FIXED: Delete post using centralized API
   const deletePost = async (eventId) => {
     let deletedEvent = null;
     const toastId = toast.loading("Canceling post...");
     setIsModalLoading(true);
     
     try {
-      console.log(`Attempting to delete post with ID: ${eventId}`);
+      console.log(`🗑️ Deleting post: ${eventId}`);
       
-      // Get the event before deleting it
       deletedEvent = events.find(e => e.id === eventId);
-      
       if (!deletedEvent) {
-        throw new Error(`Could not find event with ID ${eventId} in local state`);
+        throw new Error(`Could not find event with ID ${eventId}`);
       }
       
-      // Use api object instead of direct axios call for better error handling
+      // Use centralized API for deletion
       await api.posts.delete(eventId);
       
-      // Update both events and filteredEvents arrays
+      // Update state
       setEvents(events.filter((event) => event.id !== eventId));
       setFilteredEvents(filteredEvents.filter((event) => event.id !== eventId));
 
-      // Update stats if we have the deleted event
+      // Update stats
       if (deletedEvent) {
         setStats(prev => ({
           ...prev,
@@ -466,10 +411,10 @@ useEffect(() => {
       });
       
       setSelectedEvent(null);
-      setShowScheduleForm(false); // Close the modal
-      fetchEvents(); // Refresh the events list
+      setShowScheduleForm(false);
+      
     } catch (error) {
-      console.error('Error deleting post:', error);
+      console.error('❌ Error deleting post:', error);
       toast.update(toastId, {
         render: error.response?.data?.detail || "Failed to cancel post. Please try again.",
         type: "error",
@@ -483,16 +428,16 @@ useEffect(() => {
 
   // Update post status
   const updatePostStatus = async (eventId, newStatus) => {
-  setIsModalLoading(true);
-  const toastId = toast.loading("Updating post status...");
+    setIsModalLoading(true);
+    const toastId = toast.loading("Updating post status...");
 
-  try {
-    await api.patch(`/scheduled-posts/${eventId}`, { status: newStatus });
+    try {
+      await api.posts.update(eventId, { status: newStatus });
+      
       setEvents(events.map(event =>
         event.id === eventId ? { ...event, status: newStatus } : event
       ));
 
-      // Update stats
       const updatedEvent = events.find(e => e.id === eventId);
       setStats(prev => ({
         ...prev,
@@ -510,27 +455,22 @@ useEffect(() => {
         autoClose: 3000,
       });
     } catch (error) {
-    console.error("Error updating post status:", error);
-    
-    if (error.response?.status === 401) {
+      console.error("Error updating post status:", error);
+      
+      const errorMessage = error.response?.status === 401 
+        ? "Please log in to update post status"
+        : "Failed to update post status.";
+        
       toast.update(toastId, {
-        render: "Please log in to update post status",
-        type: "error",
-        isLoading: false,
-        autoClose: 3000,
-      });
-    } else {
-      toast.update(toastId, {
-        render: "Failed to update post status.",
+        render: errorMessage,
         type: "error",
         isLoading: false,
         autoClose: 5000,
       });
+    } finally {
+      setIsModalLoading(false);
     }
-  } finally {
-    setIsModalLoading(false);
-  }
-};
+  };
 
   // Export calendar data to Excel
   const exportToExcel = () => {
@@ -561,9 +501,7 @@ useEffect(() => {
       const worksheet = workbook.Sheets[workbook.SheetNames[0]];
       const jsonData = XLSX.utils.sheet_to_json(worksheet);
 
-      // Process imported data (this would need to be adapted to your API)
       toast.info(`Imported ${jsonData.length} posts. Ready to process.`);
-      // Here you would typically send this data to your backend
     };
     reader.readAsArrayBuffer(file);
   };
@@ -811,6 +749,15 @@ useEffect(() => {
                 <motion.button
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
+                  onClick={() => navigate("/create-post")}
+                  className="flex items-center gap-2 bg-white border border-gray-200 text-gray-700 px-4 py-2.5 rounded-lg hover:bg-gray-50 transition-all duration-200 text-sm"
+                >
+                  <FiPlus className="text-lg" />
+                  Create Post
+                </motion.button>
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
                   onClick={() => fileInputRef.current.click()}
                   className="flex items-center gap-2 bg-white border border-gray-200 text-gray-700 px-4 py-2.5 rounded-lg hover:bg-gray-50 transition-all duration-200 text-sm"
                 >
@@ -832,15 +779,6 @@ useEffect(() => {
                 >
                   <FiDownload size={16} />
                   Export
-                </motion.button>
-                <motion.button
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  onClick={shareCalendar}
-                  className="flex items-center gap-2 bg-white border border-gray-200 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 transition-all duration-200 text-sm"
-                >
-                  <FiShare2 size={16} />
-                  Share
                 </motion.button>
               </div>
             </div>
@@ -990,24 +928,6 @@ useEffect(() => {
                   <FiRefreshCw size={16} />
                   Refresh
                 </motion.button>
-                <motion.button
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  onClick={exportToExcel}
-                  className="flex items-center gap-2 bg-white border border-gray-200 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 transition-all duration-200 text-sm"
-                >
-                  <FiDownload size={16} />
-                  Export
-                </motion.button>
-                <motion.button
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  onClick={shareCalendar}
-                  className="flex items-center gap-2 bg-white border border-gray-200 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 transition-all duration-200 text-sm"
-                >
-                  <FiShare2 size={16} />
-                  Share
-                </motion.button>
               </div>
             </div>
 
@@ -1055,33 +975,45 @@ useEffect(() => {
                     <div>
                       <h4 className="text-sm font-medium text-gray-500 mb-2">Platform Distribution</h4>
                       <div className="h-40">
-                        <Doughnut
-                          data={platformChartData}
-                          options={{
-                            maintainAspectRatio: false,
-                            plugins: {
-                              legend: {
-                                position: 'right'
+                        {Object.keys(stats.byPlatform).length > 0 ? (
+                          <Doughnut
+                            data={platformChartData}
+                            options={{
+                              maintainAspectRatio: false,
+                              plugins: {
+                                legend: {
+                                  position: 'right'
+                                }
                               }
-                            }
-                          }}
-                        />
+                            }}
+                          />
+                        ) : (
+                          <div className="h-full flex items-center justify-center text-gray-500 text-sm">
+                            No data available
+                          </div>
+                        )}
                       </div>
                     </div>
                     <div>
                       <h4 className="text-sm font-medium text-gray-500 mb-2">Status Overview</h4>
                       <div className="h-40">
-                        <Doughnut
-                          data={statusChartData}
-                          options={{
-                            maintainAspectRatio: false,
-                            plugins: {
-                              legend: {
-                                position: 'right'
+                        {Object.keys(stats.byStatus).length > 0 ? (
+                          <Doughnut
+                            data={statusChartData}
+                            options={{
+                              maintainAspectRatio: false,
+                              plugins: {
+                                legend: {
+                                  position: 'right'
+                                }
                               }
-                            }
-                          }}
-                        />
+                            }}
+                          />
+                        ) : (
+                          <div className="h-full flex items-center justify-center text-gray-500 text-sm">
+                            No data available
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -1215,6 +1147,7 @@ useEffect(() => {
                         </div>
                       )}
 
+                      {/* FIXED: Show post preview with actual content */}
                       {caption && (
                         <div className="bg-gray-50 p-4 rounded-lg">
                           <p className="text-xs text-gray-500 mb-1">Post Preview</p>
@@ -1223,7 +1156,7 @@ useEffect(() => {
                             <div className="mt-2">
                               <div className={`${getAspectRatio(platform)} w-full overflow-hidden rounded border border-gray-200`}>
                                 <img
-                                  src={is_carousel ? image_url[0] : image_url}
+                                  src={is_carousel ? (Array.isArray(image_url) ? image_url[0] : image_url) : image_url}
                                   alt="Post preview"
                                   className="w-full h-full object-cover"
                                 />
@@ -1345,7 +1278,7 @@ useEffect(() => {
                             {selectedEvent.image_url && (
                               <div className={`${getAspectRatio(selectedEvent.platform)} w-full overflow-hidden rounded border border-gray-200`}>
                                 <img
-                                  src={selectedEvent.is_carousel ? selectedEvent.image_url[0] : selectedEvent.image_url}
+                                  src={selectedEvent.is_carousel ? (Array.isArray(selectedEvent.image_url) ? selectedEvent.image_url[0] : selectedEvent.image_url) : selectedEvent.image_url}
                                   alt="Post media"
                                   className="w-full h-full object-cover"
                                 />

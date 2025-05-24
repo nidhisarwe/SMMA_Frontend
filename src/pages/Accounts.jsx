@@ -13,7 +13,7 @@ const Accounts = () => {
   const [accounts, setAccounts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [disconnecting, setDisconnecting] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(null);
   
   const location = useLocation();
   const navigate = useNavigate();
@@ -90,15 +90,25 @@ const Accounts = () => {
     if (disconnecting) return;
 
     try {
-      setDisconnecting(true);
+      setDisconnecting(accountId);
       const toastId = toast.loading("Disconnecting account...");
-
+      
+      // Ensure we're using a valid ID format
+      if (!accountId) {
+        throw new Error("Invalid account ID");
+      }
+      
+      console.log(`🔄 Disconnecting account ${accountId} for authenticated user...`);
+      
       // Use the configured API client
-      await api.delete(`/linkedin/accounts/${accountId}`);
+      const response = await api.delete(`/linkedin/accounts/${accountId}`);
+      console.log("✅ Account disconnected successfully:", response.data);
 
-      setAccounts(accounts.filter(account =>
-        account._id !== accountId && account.account_id !== accountId
-      ));
+      // Update the accounts list by filtering out the disconnected account
+      setAccounts(accounts.filter(account => {
+        const accountIdToCompare = account._id || account.account_id || account.id;
+        return accountIdToCompare !== accountId;
+      }));
 
       toast.update(toastId, {
         render: "Account disconnected successfully!",
@@ -108,18 +118,26 @@ const Accounts = () => {
       });
     } catch (error) {
       console.error("Error disconnecting account:", error);
+      console.error("Error details:", error.response?.data || error.message);
+      
+      let errorMessage = "Failed to disconnect account";
       
       if (error.response?.status === 401) {
-        setError("Please log in to disconnect accounts");
-        toast.error("Please log in to disconnect accounts");
+        errorMessage = "Please log in to disconnect accounts";
+      } else if (error.response?.status === 403) {
+        errorMessage = "You don't have permission to disconnect this account";
       } else if (error.response?.status === 404) {
-        toast.error("Account not found or already disconnected");
-      } else {
-        setError("Failed to disconnect account");
-        toast.error("Failed to disconnect account");
+        errorMessage = "Account not found or already disconnected";
+      } else if (error.response?.status === 400) {
+        errorMessage = "Invalid account ID format";
+      } else if (error.response?.data?.detail) {
+        errorMessage = error.response.data.detail;
       }
+      
+      setError(errorMessage);
+      toast.error(errorMessage);
     } finally {
-      setDisconnecting(false);
+      setDisconnecting(null);
     }
   };
 
@@ -245,11 +263,18 @@ const Accounts = () => {
                         {account.account_type === 'personal' ? 'Personal Account' : 'Business Account'}
                       </div>
                       <button
-                        onClick={() => handleDisconnect(account._id || account.account_id)}
+                        onClick={() => {
+                          // Use the correct account ID - prioritize _id, then account_id, then id
+                          const accountIdToUse = account._id || account.account_id || account.id;
+                          console.log("Using account ID for disconnect:", accountIdToUse);
+                          handleDisconnect(accountIdToUse);
+                        }}
                         className="text-red-500 hover:text-red-700 flex items-center text-sm"
-                        disabled={disconnecting}
+                        disabled={disconnecting === (account._id || account.account_id || account.id)}
                       >
-                        {disconnecting ? <FaSpinner className="animate-spin mr-1" /> : <FaTrash className="mr-1" />}
+                        {disconnecting === (account._id || account.account_id || account.id) ? 
+                          <FaSpinner className="animate-spin mr-1" /> : 
+                          <FaTrash className="mr-1" />}
                         Disconnect
                       </button>
                     </div>
