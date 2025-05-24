@@ -66,27 +66,24 @@ const SocialDashboard = () => {
         console.log("No current user, cannot fetch accounts");
         return;
       }
-
-      console.log("🔄 Fetching connected accounts for authenticated user...");
-      
+      console.log("🔄 Fetching connected accounts for user:", currentUser.uid);
       const response = await api.get("/linkedin/accounts");
+      console.log("✅ Full accounts response:", JSON.stringify(response.data, null, 2));
       
-      console.log("✅ Connected accounts response:", response.data);
-      setConnectedAccounts(response.data?.accounts || []);
+      // Check for expired tokens
+      const accounts = response.data.accounts.map(account => ({
+        ...account,
+        token_expired: account.expires_at && new Date(account.expires_at) < new Date(),
+      }));
       
-      console.log(`📊 Found ${response.data?.accounts?.length || 0} connected accounts for current user`);
-      
-    } catch (error) {
-      console.error("❌ Error fetching connected accounts:", error);
-      if (error.response?.status === 401) {
-        setError("Authentication issue. Please refresh the page.");
-        setTimeout(() => setError(null), 5000);
-      } else if (error.response?.status === 403) {
-        setError("Access denied. Please ensure you're logged in with the correct account.");
-      } else {
-        setError("Failed to load connected accounts");
-        console.error("Connected accounts error details:", error.response?.data);
+      setConnectedAccounts(accounts);
+      if (accounts.some(account => account.token_expired)) {
+        setError("One or more LinkedIn accounts have expired tokens. Please reconnect.");
       }
+      console.log(`📊 Found ${accounts.length} accounts:`, accounts);
+    } catch (error) {
+      console.error("❌ Error fetching accounts:", error.response?.data || error.message);
+      setError("Failed to load connected accounts");
     }
   };
 

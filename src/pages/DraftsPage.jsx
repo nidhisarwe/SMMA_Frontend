@@ -286,28 +286,41 @@ const DraftsPage = () => {
   };
   
   // Function to post now
-  const postNow = async () => {
-    if (!selectedDraft) return;
-    
-    setIsPosting(true);
-    const toastId = toast.loading("Posting now...");
-    
+  const postNow = async (draft) => {
     try {
+      const draftToPost = draft || selectedDraft;
+      if (!draftToPost) {
+        toast.error("No draft selected for posting");
+        return;
+      }
+      
+      setIsPosting(true);
+      const toastId = toast.loading("Posting now...");
+      
+      // Ensure image_url is properly formatted
+      let imageUrl = draftToPost.image_url;
+      
       // Prepare post data
       const postData = {
-        caption: selectedDraft.caption,
-        image_url: selectedDraft.image_url,
-        platform: selectedPlatform,
-        is_carousel: selectedDraft.is_carousel || false,
-        draft_id: selectedDraft._id // Include the draft ID for reference
+        caption: draftToPost.caption,
+        image_url: imageUrl,
+        platform: draftToPost.platform || "linkedin",
+        is_carousel: Array.isArray(imageUrl) && imageUrl.length > 1,
+        from_draft_id: draftToPost._id // Include the draft ID for reference
       };
       
-      // Call the API to post now
-      const response = await axios.post("http://localhost:8000/api/post-now", postData, {
+      // Log the post data for debugging
+      console.log("Posting data:", JSON.stringify(postData, null, 2));
+      
+      // Call the API to post now with the trailing slash
+      const response = await axios.post("http://localhost:8000/api/post-now/", postData, {
         headers: {
-          Authorization: `Bearer ${await auth.currentUser.getIdToken()}`
+          Authorization: `Bearer ${await auth.currentUser.getIdToken()}`,
+          'Content-Type': 'application/json'
         }
       });
+      
+      console.log("Post response:", response.data);
       
       toast.update(toastId, {
         render: "Post published successfully!",
@@ -316,15 +329,30 @@ const DraftsPage = () => {
         autoClose: 3000
       });
       
-      // Close the modal
-      closeScheduleModal();
+      // Refresh the drafts list
+      await fetchDrafts();
+      
+      // Close the modal if it's open
+      if (showScheduleModal) {
+        closeScheduleModal();
+      }
     } catch (error) {
       console.error("Error posting now:", error);
+      console.error("Error response:", error.response?.data);
       
-      toast.update(toastId, {
-        render: error.response?.data?.detail || "Failed to publish post",
-        type: "error",
-        isLoading: false,
+      let errorMessage = "Failed to publish post";
+      if (error.response?.data?.detail) {
+        errorMessage = error.response.data.detail;
+      } else if (error.response?.status === 404) {
+        errorMessage = "No connected account found. Please connect your account first.";
+      } else if (error.response?.status === 401) {
+        errorMessage = "Authentication required. Please log in again.";
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      toast.error(errorMessage, {
+        position: "top-center",
         autoClose: 5000
       });
     } finally {
@@ -522,10 +550,8 @@ const DraftsPage = () => {
                           <div className="flex space-x-2">
                             <button
                               onClick={() => {
-                                toast.info("Posting functionality coming soon!", {
-                                  position: "top-center",
-                                  autoClose: 2000,
-                                });
+                                // Direct post now without setting state to avoid race conditions
+                                postNow(draft);
                               }}
                               className="p-1.5 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-600 transition"
                               title="Post now"

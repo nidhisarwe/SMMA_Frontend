@@ -24,6 +24,7 @@ import AuthGuard from "./components/AuthGuard";
 
 const App = () => {
   return (
+    
     <AuthProvider>
       <Router>
         <Routes>
@@ -153,6 +154,7 @@ const App = () => {
         </Routes>
       </Router>
     </AuthProvider>
+    
   );
 };
 
