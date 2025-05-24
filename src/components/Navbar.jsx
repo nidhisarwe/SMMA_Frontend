@@ -3,8 +3,9 @@ import { FaSearch, FaBell, FaCog, FaSignOutAlt } from "react-icons/fa";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
-import axios from "axios";
 import debounce from "lodash.debounce";
+import { useAuth } from "../contexts/AuthContext";
+import { api } from "../utils/api";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api";
 
@@ -12,18 +13,10 @@ const Navbar = () => {
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [isScrolled, setIsScrolled] = useState(false);
-  const [user, setUser] = useState(null);
   const [searchResults, setSearchResults] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
   const navigate = useNavigate();
-
-  // Load user data from localStorage
-  useEffect(() => {
-    const storedUser = localStorage.getItem("user");
-    if (storedUser) {
-      setUser(JSON.parse(storedUser));
-    }
-  }, []);
+  const { currentUser, logout } = useAuth();
 
   // Handle click outside profile dropdown
   useEffect(() => {
@@ -46,46 +39,58 @@ const Navbar = () => {
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
-  // Handle logout
-  const handleLogout = () => {
-    localStorage.removeItem("authToken");
-    localStorage.removeItem("user");
-    setUser(null);
-    setSearchResults([]); // Clear search results on logout
-    toast.success("Logged out successfully!");
-    navigate("/auth");
+  // Handle logout using AuthContext
+  const handleLogout = async () => {
+    try {
+      setSearchResults([]); // Clear search results on logout
+      await logout(true); // true means redirect to landing page
+      toast.success("Logged out successfully!");
+      // No need to navigate as the logout function will redirect
+    } catch (error) {
+      console.error("Logout error:", error);
+      toast.error("Failed to logout. Please try again.");
+    }
   };
 
   // Debounced search function
   const fetchCampaigns = useCallback(
     debounce(async (query) => {
-      if (!query.trim()) {
+      if (!query.trim() || !currentUser) {
         setSearchResults([]);
         setIsSearching(false);
         return;
       }
       setIsSearching(true);
       try {
-        const response = await axios.get(`${API_BASE_URL}/get-campaigns`);
-        const campaigns = response.data;
-        // Filter campaigns based on query (case-insensitive)
-        const filteredCampaigns = campaigns.filter(
-          (campaign) =>
-            campaign.campaign_name.toLowerCase().includes(query.toLowerCase()) ||
-            campaign.theme.toLowerCase().includes(query.toLowerCase()) ||
-            campaign.posts.some((post) =>
-              post.description.toLowerCase().includes(query.toLowerCase())
-            )
-        );
-        setSearchResults(filteredCampaigns);
+        const result = await api.campaigns.getAll();
+        if (result.success) {
+          const campaigns = result.data;
+          // Filter campaigns based on query (case-insensitive)
+          const filteredCampaigns = campaigns.filter(
+            (campaign) =>
+              campaign.campaign_name?.toLowerCase().includes(query.toLowerCase()) ||
+              campaign.theme?.toLowerCase().includes(query.toLowerCase()) ||
+              campaign.parsed_posts?.some((post) =>
+                post.caption?.toLowerCase().includes(query.toLowerCase())
+              )
+          );
+          setSearchResults(filteredCampaigns);
+        } else {
+          setSearchResults([]);
+          if (result.status === 401) {
+            // Handle unauthorized
+            toast.error("Session expired. Please log in again.");
+          }
+        }
       } catch (error) {
         toast.error("Failed to fetch campaigns. Please try again.");
         console.error("Search error:", error);
+        setSearchResults([]);
       } finally {
         setIsSearching(false);
       }
     }, 300),
-    []
+    [currentUser]
   );
 
   // Trigger search when query changes
@@ -186,11 +191,11 @@ const Navbar = () => {
               >
                 <div className="w-8 h-8 rounded-full bg-gradient-to-r from-blue-500 to-blue-600 flex items-center justify-center text-white">
                   <span className="font-medium text-sm">
-                    {user?.full_name?.[0]?.toUpperCase() || "U"}
+                    {currentUser?.displayName?.[0]?.toUpperCase() || "U"}
                   </span>
                 </div>
                 <span className="hidden md:inline-block font-medium text-gray-700">
-                  {user?.full_name || "Guest"}
+                  {currentUser?.displayName || "Guest"}
                 </span>
               </motion.button>
 
@@ -206,7 +211,7 @@ const Navbar = () => {
                   >
                     <div className="px-4 py-3 border-b border-gray-100">
                       <p className="text-sm font-medium text-gray-700">Signed in as</p>
-                      <p className="text-sm text-gray-500 truncate">{user?.email || "Not signed in"}</p>
+                      <p className="text-sm text-gray-500 truncate">{currentUser?.email || "Not signed in"}</p>
                     </div>
 
                     <a

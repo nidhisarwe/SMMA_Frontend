@@ -1,35 +1,90 @@
+// Frontend/src/pages/Accounts.jsx - UPDATED TO HANDLE NEW LINKEDIN FLOW
 import React, { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import Sidebar from "../components/Sidebar";
 import Navbar from "../components/Navbar";
 import { FaInstagram, FaFacebook, FaLinkedin, FaPlus, FaTrash, FaSpinner } from "react-icons/fa";
-import axios from "axios";
+import api from "../utils/api"; // Use configured API client
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
+import { useAuth } from "../contexts/AuthContext";
 
 const Accounts = () => {
   const [accounts, setAccounts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [disconnecting, setDisconnecting] = useState(false);
+  
+  const location = useLocation();
+  const navigate = useNavigate();
+  const { currentUser } = useAuth();
 
   useEffect(() => {
-    const fetchAccounts = async () => {
-      try {
-        const response = await axios.get("/api/accounts?user_id=current_user_id");
-        // Ensure we always have an array to map over
-        setAccounts(response.data?.accounts || []);
-      } catch (error) {
-        console.error("Error fetching accounts:", error);
-        setError("Failed to load accounts");
-        toast.error("Failed to load accounts");
-      } finally {
-        setLoading(false);
+    // FIXED: Handle LinkedIn connection completion
+    const handleLinkedInCallback = async () => {
+      const urlParams = new URLSearchParams(location.search);
+      const linkedinConnected = urlParams.get('linkedin_connected');
+      const state = urlParams.get('state');
+      const linkedinError = urlParams.get('linkedin_error');
+
+      if (linkedinError) {
+        toast.error(decodeURIComponent(linkedinError));
+        // Clean up URL
+        navigate('/accounts', { replace: true });
+        return;
+      }
+
+      if (linkedinConnected === 'true' && state && currentUser) {
+        try {
+          const response = await api.post('/linkedin/complete-connection', { state });
+          if (response.data.success) {
+            toast.success('LinkedIn account connected successfully!');
+            // Refresh accounts list
+            fetchAccounts();
+          }
+        } catch (error) {
+          console.error('Error completing LinkedIn connection:', error);
+          toast.error(error.response?.data?.detail || 'Failed to complete LinkedIn connection');
+        }
+        
+        // Clean up URL parameters
+        navigate('/accounts', { replace: true });
       }
     };
 
+    handleLinkedInCallback();
+  }, [location.search, currentUser, navigate]);
+
+  const fetchAccounts = async () => {
+    if (!currentUser) {
+      setLoading(false);
+      return;
+    }
+
+    try {
+      // Use the configured API client with proper endpoint
+      const response = await api.get("/linkedin/accounts");
+      
+      // Ensure we always have an array to map over
+      setAccounts(response.data?.accounts || []);
+    } catch (error) {
+      console.error("Error fetching accounts:", error);
+      
+      if (error.response?.status === 401) {
+        setError("Please log in to view accounts");
+        toast.error("Please log in to view accounts");
+      } else {
+        setError("Failed to load accounts");
+        toast.error("Failed to load accounts");
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
     fetchAccounts();
-  }, []);
+  }, [currentUser]);
 
   const handleDisconnect = async (accountId) => {
     if (disconnecting) return;
@@ -38,9 +93,8 @@ const Accounts = () => {
       setDisconnecting(true);
       const toastId = toast.loading("Disconnecting account...");
 
-      await axios.delete(`/api/accounts/${accountId}`, {
-        data: { user_id: "current_user_id" }
-      });
+      // Use the configured API client
+      await api.delete(`/linkedin/accounts/${accountId}`);
 
       setAccounts(accounts.filter(account =>
         account._id !== accountId && account.account_id !== accountId
@@ -54,8 +108,16 @@ const Accounts = () => {
       });
     } catch (error) {
       console.error("Error disconnecting account:", error);
-      setError("Failed to disconnect account");
-      toast.error("Failed to disconnect account");
+      
+      if (error.response?.status === 401) {
+        setError("Please log in to disconnect accounts");
+        toast.error("Please log in to disconnect accounts");
+      } else if (error.response?.status === 404) {
+        toast.error("Account not found or already disconnected");
+      } else {
+        setError("Failed to disconnect account");
+        toast.error("Failed to disconnect account");
+      }
     } finally {
       setDisconnecting(false);
     }
@@ -88,6 +150,29 @@ const Accounts = () => {
         return 'bg-gradient-to-r from-blue-500 to-blue-700';
     }
   };
+
+  // Show loading if not authenticated
+  if (!currentUser) {
+    return (
+      <div className="flex h-screen bg-gray-50">
+        <Sidebar />
+        <div className="flex-1 flex flex-col overflow-hidden">
+          <Navbar />
+          <main className="flex-1 overflow-y-auto p-8 flex items-center justify-center">
+            <div className="text-center">
+              <p className="text-gray-600 mb-4">Please log in to view your connected accounts</p>
+              <Link
+                to="/auth"
+                className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                Log In
+              </Link>
+            </div>
+          </main>
+        </div>
+      </div>
+    );
+  }
 
   if (loading) {
     return (
@@ -134,7 +219,7 @@ const Accounts = () => {
               <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-6 rounded">
                 <p>{error}</p>
                 <button
-                  onClick={() => window.location.reload()}
+                  onClick={fetchAccounts}
                   className="mt-2 text-sm font-medium text-red-700 underline hover:text-red-800"
                 >
                   Retry

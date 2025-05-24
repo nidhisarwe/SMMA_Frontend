@@ -7,8 +7,13 @@ import "moment-timezone";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import axios from "axios";
+import api from "../utils/api";
+import apiClient from "../api/apiClient";
 import Navbar from "../components/Navbar";
 import Sidebar from "../components/Sidebar";
+
+// API base URL for direct axios calls
+const API_BASE_URL = "http://localhost:8000/api";
 import {
   FiPlus, FiClock, FiX, FiChevronLeft, FiChevronRight,
   FiCalendar, FiFilter, FiRefreshCw, FiUpload, FiDownload,
@@ -29,7 +34,7 @@ moment.tz.setDefault("Asia/Kolkata");
 ChartJS.register(ArcElement, Tooltip, Legend);
 
 const localizer = momentLocalizer(moment);
-const API_URL = "http://127.0.0.1:8000/api/scheduled-posts";
+const API_URL = "/scheduled-posts";
 
 const CalendarPage = () => {
   const location = useLocation();
@@ -84,77 +89,201 @@ const CalendarPage = () => {
 
   // Effect to auto-open schedule form if post data is passed from previous page
   useEffect(() => {
-    if (caption && image_url && platform) {
+    if (location.state && location.state.draftData) {
+      // If we have draft data from the DraftsPage, use it
+      const { content, image_url: draftImageUrl, platform: draftPlatform, is_carousel: draftIsCarousel } = location.state.draftData;
+      
+      // Set the form data from the draft
+      const now = new Date();
+      const defaultDate = new Date(now);
+      defaultDate.setMinutes(Math.ceil(now.getMinutes() / 15) * 15); // Round up to nearest 15 minutes
+      
+      setSelectedDate(defaultDate);
+      setSelectedTime(defaultDate);
+      setShowScheduleForm(true);
+      
+      // Update the URL to remove the draft data from the location state
+      window.history.replaceState({}, document.title);
+      
+    } else if (location.state && location.state.fromDrafts && caption && image_url && platform) {
+      // Only allow scheduling if coming from drafts page
+      const now = new Date();
+      const defaultDate = new Date(now);
+      defaultDate.setMinutes(Math.ceil(now.getMinutes() / 15) * 15); // Round up to nearest 15 minutes
+      
+      setSelectedDate(defaultDate);
+      setSelectedTime(defaultDate);
       setShowScheduleForm(true);
     }
-  }, [caption, image_url, platform]);
+  }, [caption, image_url, platform, location.state]);
 
   // Fetch scheduled posts, statistics and connected accounts
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        setIsLoading(true);
-        const [eventsRes, statsRes, teamRes, accountsRes] = await Promise.all([
-          axios.get(API_URL),
-          axios.get("http://127.0.0.1:8000/api/scheduled-posts-stats/"),
-          axios.get("http://127.0.0.1:8000/api/team-members"),
-          axios.get("http://127.0.0.1:8000/api/accounts/?user_id=current_user_id")
-        ]);
+  // Replace the fetchData useEffect in your CalendarPage.jsx with this:
 
-        // Process events - Convert UTC to IST
-        const eventsData = eventsRes.data.map((post) => ({
-          id: post.id,
-          title: post.caption.length > 30 ? post.caption.slice(0, 30) + "..." : post.caption,
-          start: convertToIST(post.scheduled_time),
-          end: new Date(convertToIST(post.scheduled_time).getTime() + 30 * 60000),
-          allDay: false,
-          platform: post.platform,
-          caption: post.caption,
-          image_url: post.image_url,
-          status: post.status || "scheduled",
-          is_carousel: post.is_carousel || false,
-          assigned_to: post.assigned_to || null,
-          tags: post.tags || []
-        }));
+useEffect(() => {
+  const fetchData = async () => {
+    try {
+      setIsLoading(true);
+      const [eventsRes, statsRes, teamRes, accountsRes] = await Promise.all([
+        api.get("/scheduled-posts"),
+        api.get("/scheduled-posts-stats/"),
+        api.get("/team-members"),
+        api.get("/accounts/")
+      ]);
 
-        setEvents(eventsData);
-        setFilteredEvents(eventsData);
+      console.log("Raw API responses:", {
+        events: eventsRes.data,
+        stats: statsRes.data,
+        teams: teamRes.data,
+        accounts: accountsRes.data
+      });
 
-        // Process statistics
-        setStats({
-          totalPosts: statsRes.data.total_posts,
-          byPlatform: statsRes.data.by_platform,
-          byStatus: statsRes.data.by_status
-        });
-
-        // Process team members
-        setTeamMembers(teamRes.data);
-
-        // Process connected accounts
-        if (accountsRes.data && accountsRes.data.accounts) {
-          setConnectedAccounts(accountsRes.data.accounts);
+      // Handle different response structures for events
+      let eventsData = [];
+      if (eventsRes.data) {
+        if (Array.isArray(eventsRes.data)) {
+          // Direct array response
+          eventsData = eventsRes.data;
+        } else if (eventsRes.data.posts && Array.isArray(eventsRes.data.posts)) {
+          // Nested posts array
+          eventsData = eventsRes.data.posts;
+        } else if (eventsRes.data.data && Array.isArray(eventsRes.data.data)) {
+          // Nested data array
+          eventsData = eventsRes.data.data;
+        } else {
+          console.warn("Unexpected events response structure:", eventsRes.data);
+          eventsData = [];
         }
-
-        // Check if we have a connected account for the current platform
-        if (platform) {
-          const hasAccount = accountsRes.data.accounts?.some(
-            acc => acc.platform.toLowerCase() === platform.toLowerCase() && acc.is_active
-          );
-
-          if (!hasAccount) {
-            setShowAccountWarning(true);
-          }
-        }
-      } catch (error) {
-        console.error("Error fetching data:", error);
-        toast.error("Failed to load data");
-      } finally {
-        setIsLoading(false);
       }
-    };
 
-    fetchData();
-  }, [platform]);
+      // Process events - Convert UTC to IST
+      const processedEvents = eventsData.map((post) => ({
+        id: post.id || post._id,
+        title: (post.caption || post.content || "Untitled Post").length > 30 
+          ? (post.caption || post.content || "Untitled Post").slice(0, 30) + "..." 
+          : (post.caption || post.content || "Untitled Post"),
+        start: post.scheduled_time ? convertToIST(post.scheduled_time) : new Date(),
+        end: post.scheduled_time 
+          ? new Date(convertToIST(post.scheduled_time).getTime() + 30 * 60000)
+          : new Date(Date.now() + 30 * 60000),
+        allDay: false,
+        platform: post.platform || "unknown",
+        caption: post.caption || post.content || "",
+        image_url: post.image_url || post.image_urls || null,
+        status: post.status || "scheduled",
+        is_carousel: post.is_carousel || false,
+        assigned_to: post.assigned_to || null,
+        tags: post.tags || []
+      }));
+
+      setEvents(processedEvents);
+      setFilteredEvents(processedEvents);
+
+      // Handle stats response structure
+      let processedStats = {
+        totalPosts: 0,
+        byPlatform: {},
+        byStatus: {}
+      };
+
+      if (statsRes.data) {
+        if (typeof statsRes.data.total_posts !== 'undefined') {
+          // New API structure
+          processedStats = {
+            totalPosts: statsRes.data.total_posts || 0,
+            byPlatform: statsRes.data.by_platform || {},
+            byStatus: statsRes.data.by_status || {}
+          };
+        } else {
+          // Calculate stats from events if API doesn't provide them
+          processedStats.totalPosts = processedEvents.length;
+          
+          processedEvents.forEach(event => {
+            // Platform stats
+            if (event.platform) {
+              processedStats.byPlatform[event.platform] = (processedStats.byPlatform[event.platform] || 0) + 1;
+            }
+            // Status stats
+            if (event.status) {
+              processedStats.byStatus[event.status] = (processedStats.byStatus[event.status] || 0) + 1;
+            }
+          });
+        }
+      }
+
+      setStats(processedStats);
+
+      // Handle team members response
+      let processedTeamMembers = [];
+      if (teamRes.data) {
+        if (Array.isArray(teamRes.data)) {
+          processedTeamMembers = teamRes.data;
+        } else if (teamRes.data.members && Array.isArray(teamRes.data.members)) {
+          processedTeamMembers = teamRes.data.members;
+        } else {
+          // Default team members if none available
+          processedTeamMembers = [
+            { id: "1", username: "user1", name: "John Doe" },
+            { id: "2", username: "user2", name: "Jane Smith" }
+          ];
+        }
+      }
+
+      setTeamMembers(processedTeamMembers);
+
+      // Handle connected accounts response
+      let processedAccounts = [];
+      if (accountsRes.data && accountsRes.data.accounts) {
+        processedAccounts = accountsRes.data.accounts;
+      }
+
+      setConnectedAccounts(processedAccounts);
+
+      // Check if we have a connected account for the current platform
+      if (platform) {
+        const hasAccount = processedAccounts.some(
+          acc => acc.platform && 
+                 acc.platform.toLowerCase() === platform.toLowerCase() && 
+                 (acc.is_active === true || acc.is_active === undefined)
+        );
+
+        if (!hasAccount) {
+          setShowAccountWarning(true);
+        }
+      }
+
+      console.log("Processed data:", {
+        events: processedEvents.length,
+        stats: processedStats,
+        accounts: processedAccounts.length,
+        teamMembers: processedTeamMembers.length
+      });
+
+    } catch (error) {
+      console.error("Error fetching data:", error);
+      
+      // Better error handling
+      if (error.response?.status === 401) {
+        toast.error("Please log in to view calendar data");
+      } else if (error.response?.status === 404) {
+        // Handle 404 errors gracefully - set empty data
+        setEvents([]);
+        setFilteredEvents([]);
+        setStats({ totalPosts: 0, byPlatform: {}, byStatus: {} });
+        setTeamMembers([]);
+        setConnectedAccounts([]);
+        toast.info("No data found - you can start by creating your first post!");
+      } else {
+        toast.error("Failed to load calendar data");
+        console.error("Full error:", error.response || error);
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  fetchData();
+}, [platform]);
 
   // Apply filters whenever events, activeFilter, searchQuery, or selectedTeamMember changes
   useEffect(() => {
@@ -212,21 +341,21 @@ const CalendarPage = () => {
     }
 
     try {
-      setIsModalLoading(true);
+    setIsModalLoading(true);
 
-      // Convert IST to UTC for API
-      const scheduledUTC = moment.tz(scheduledDateTime, "Asia/Kolkata").utc().format();
+    // Convert IST to UTC for API
+    const scheduledUTC = moment.tz(scheduledDateTime, "Asia/Kolkata").utc().format();
 
-      // Use the new schedule-post endpoint
-      const response = await axios.post("http://127.0.0.1:8000/api/schedule-post/", {
-        caption,
-        image_url: is_carousel ? image_url : image_url,
-        platform,
-        scheduled_time: scheduledUTC,
-        is_carousel,
-        user_id: "current_user_id",
-        tags: ["scheduled"]
-      });
+    // Use api instead of axios
+    const response = await api.post("/schedule-post/", {
+      caption,
+      image_url: is_carousel ? image_url : image_url,
+      platform,
+      scheduled_time: scheduledUTC,
+      is_carousel,
+      user_id: "current_user_id",
+      tags: ["scheduled"]
+    });
 
       const newEvent = {
         id: response.data.id,
@@ -273,28 +402,61 @@ const CalendarPage = () => {
         }
       });
     } catch (error) {
-      console.error("Error scheduling post:", error);
+    console.error("Error scheduling post:", error);
+    
+    // Better error handling
+    if (error.response?.status === 401) {
+      toast.error("Please log in to schedule posts");
+    } else {
       let errorMessage = "Failed to schedule post. Please try again.";
-
-      if (error.response && error.response.data && error.response.data.detail) {
+      if (error.response?.data?.detail) {
         errorMessage = error.response.data.detail;
       }
-
       toast.error(errorMessage);
-    } finally {
-      setIsModalLoading(false);
     }
-  };
+  } finally {
+    setIsModalLoading(false);
+  }
+};
 
   // Delete a scheduled post
   const deletePost = async (eventId) => {
+    let deletedEvent = null;
+    const toastId = toast.loading("Canceling post...");
     setIsModalLoading(true);
-    const toastId = toast.loading("Canceling post...", { position: "top-right" });
-
+    
     try {
-      await axios.delete(`${API_URL}/${eventId}`);
-      const deletedEvent = events.find(e => e.id === eventId);
+      console.log(`Attempting to delete post with ID: ${eventId}`);
+      
+      // Get the event before deleting it
+      deletedEvent = events.find(e => e.id === eventId);
+      
+      if (!deletedEvent) {
+        throw new Error(`Could not find event with ID ${eventId} in local state`);
+      }
+      
+      // Use api object instead of direct axios call for better error handling
+      await api.posts.delete(eventId);
+      
+      // Update both events and filteredEvents arrays
       setEvents(events.filter((event) => event.id !== eventId));
+      setFilteredEvents(filteredEvents.filter((event) => event.id !== eventId));
+
+      // Update stats if we have the deleted event
+      if (deletedEvent) {
+        setStats(prev => ({
+          ...prev,
+          totalPosts: Math.max(0, prev.totalPosts - 1),
+          byPlatform: {
+            ...prev.byPlatform,
+            [deletedEvent.platform]: Math.max(0, (prev.byPlatform[deletedEvent.platform] || 0) - 1)
+          },
+          byStatus: {
+            ...prev.byStatus,
+            [deletedEvent.status]: Math.max(0, (prev.byStatus[deletedEvent.status] || 0) - 1)
+          }
+        }));
+      }
 
       toast.update(toastId, {
         render: "Post canceled successfully!",
@@ -302,25 +464,14 @@ const CalendarPage = () => {
         isLoading: false,
         autoClose: 3000,
       });
+      
       setSelectedEvent(null);
-
-      // Update stats
-      setStats(prev => ({
-        ...prev,
-        totalPosts: prev.totalPosts - 1,
-        byPlatform: {
-          ...prev.byPlatform,
-          [deletedEvent.platform]: (prev.byPlatform[deletedEvent.platform] || 0) - 1
-        },
-        byStatus: {
-          ...prev.byStatus,
-          [deletedEvent.status]: (prev.byStatus[deletedEvent.status] || 0) - 1
-        }
-      }));
+      setShowScheduleForm(false); // Close the modal
+      fetchEvents(); // Refresh the events list
     } catch (error) {
-      console.error("Error deleting post:", error);
+      console.error('Error deleting post:', error);
       toast.update(toastId, {
-        render: "Failed to cancel post. Please try again.",
+        render: error.response?.data?.detail || "Failed to cancel post. Please try again.",
         type: "error",
         isLoading: false,
         autoClose: 5000,
@@ -332,11 +483,11 @@ const CalendarPage = () => {
 
   // Update post status
   const updatePostStatus = async (eventId, newStatus) => {
-    setIsModalLoading(true);
-    const toastId = toast.loading("Updating post status...");
+  setIsModalLoading(true);
+  const toastId = toast.loading("Updating post status...");
 
-    try {
-      await axios.patch(`${API_URL}/${eventId}`, { status: newStatus });
+  try {
+    await api.patch(`/scheduled-posts/${eventId}`, { status: newStatus });
       setEvents(events.map(event =>
         event.id === eventId ? { ...event, status: newStatus } : event
       ));
@@ -359,17 +510,27 @@ const CalendarPage = () => {
         autoClose: 3000,
       });
     } catch (error) {
-      console.error("Error updating post status:", error);
+    console.error("Error updating post status:", error);
+    
+    if (error.response?.status === 401) {
+      toast.update(toastId, {
+        render: "Please log in to update post status",
+        type: "error",
+        isLoading: false,
+        autoClose: 3000,
+      });
+    } else {
       toast.update(toastId, {
         render: "Failed to update post status.",
         type: "error",
         isLoading: false,
         autoClose: 5000,
       });
-    } finally {
-      setIsModalLoading(false);
     }
-  };
+  } finally {
+    setIsModalLoading(false);
+  }
+};
 
   // Export calendar data to Excel
   const exportToExcel = () => {

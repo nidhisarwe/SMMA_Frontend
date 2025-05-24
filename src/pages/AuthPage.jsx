@@ -1,12 +1,10 @@
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
-import axios from "axios";
+import { useState, useEffect } from "react";
+import { useNavigate, Link } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { ToastContainer, toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
-import { FiUser, FiMail, FiLock, FiBriefcase, FiLogIn, FiUserPlus, FiLoader, FiEye, FiEyeOff } from "react-icons/fi"; // Added FiEye, FiEyeOff
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api/auth";
+import { FiUser, FiMail, FiLock, FiBriefcase, FiLogIn, FiUserPlus, FiLoader, FiEye, FiEyeOff } from "react-icons/fi";
+import { useAuth } from "../contexts/AuthContext";
 
 const AuthPage = () => {
   const [isLoginMode, setIsLoginMode] = useState(true);
@@ -20,6 +18,55 @@ const AuthPage = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [shake, setShake] = useState(false);
   const navigate = useNavigate();
+  const { login, register, error, currentUser, loading: authLoading } = useAuth();
+  
+  // Check if user is already logged in and redirect if needed
+  useEffect(() => {
+    if (!authLoading && currentUser) {
+      console.log("User already logged in, checking for redirect");
+      
+      // Check if there's a pending LinkedIn connection to complete
+      const pendingLinkedInState = sessionStorage.getItem('pendingLinkedInState');
+      const pendingLinkedInCode = sessionStorage.getItem('pendingLinkedInCode');
+      
+      if (pendingLinkedInState && pendingLinkedInCode) {
+        console.log("Found pending LinkedIn connection with code and state, redirecting to process it");
+        // Construct a URL to the social dashboard with the LinkedIn parameters
+        const linkedInRedirectUrl = `/social-dashboard?code=${pendingLinkedInCode}&state=${pendingLinkedInState}`;
+        
+        // Clear the pending LinkedIn data
+        sessionStorage.removeItem('pendingLinkedInState');
+        sessionStorage.removeItem('pendingLinkedInCode');
+        
+        // Redirect to process the LinkedIn connection
+        navigate(linkedInRedirectUrl);
+        return;
+      } else if (pendingLinkedInState) {
+        console.log("Found pending LinkedIn state, redirecting to complete connection");
+        // Construct a URL to the social dashboard with the LinkedIn parameters
+        const linkedInRedirectUrl = `/social-dashboard?linkedin_connected=true&state=${pendingLinkedInState}`;
+        
+        // Clear the pending LinkedIn state
+        sessionStorage.removeItem('pendingLinkedInState');
+        
+        // Redirect to complete the LinkedIn connection
+        navigate(linkedInRedirectUrl);
+        return;
+      }
+      
+      // Check if there's a saved redirect path
+      const redirectPath = sessionStorage.getItem('redirectAfterLogin');
+      if (redirectPath) {
+        console.log(`Redirecting to saved path: ${redirectPath}`);
+        sessionStorage.removeItem('redirectAfterLogin'); // Clear the saved path
+        navigate(redirectPath);
+      } else {
+        // Default redirect to dashboard
+        console.log("No saved redirect path, going to dashboard");
+        navigate('/social-dashboard');
+      }
+    }
+  }, [currentUser, authLoading, navigate]);
 
   const pageVariants = {
     initial: { opacity: 0 },
@@ -51,24 +98,22 @@ const AuthPage = () => {
       opacity: 1,
       transition: {
         type: "spring",
-        stiffness: 120,
-        damping: 12,
+        stiffness: 300,
+        damping: 20,
       },
     },
     exit: {
+      y: -20,
       opacity: 0,
-      height: 0,
-      marginTop: 0,
-      marginBottom: 0,
-      paddingTop: 0,
-      paddingBottom: 0,
-      overflow: 'hidden',
-      transition: { duration: 0.2 }
-    }
+      transition: {
+        duration: 0.2,
+      },
+    },
   };
 
   const handleChange = (e) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
+    const { name, value } = e.target;
+    setFormData({ ...formData, [name]: value });
   };
 
   const triggerShake = () => {
@@ -77,7 +122,6 @@ const AuthPage = () => {
   };
 
   const toggleMode = (mode) => {
-    if (mode === isLoginMode) return; // Avoid re-render if already in the target mode
     setIsLoginMode(mode);
     setFormData({
       fullName: "",
@@ -87,341 +131,319 @@ const AuthPage = () => {
     });
   };
 
- const handleSubmit = async (e) => {
-  e.preventDefault();
-  setIsLoading(true);
+  // Function to use test credentials for easier testing
+  const useTestCredentials = () => {
+    setFormData({
+      ...formData,
+      email: "test@socialsync.com",
+      password: "Test123456",
+      fullName: isLoginMode ? formData.fullName : "Test User",
+      organizationName: isLoginMode ? formData.organizationName : "Test Organization"
+    });
+    toast.info("Test credentials loaded. Click Login/Register to continue.");
+  };
 
-  const { fullName, email, organizationName, password } = formData;
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setIsLoading(true);
 
-  if (isLoginMode) {
-    if (!email || !password) {
-      toast.error("Email and Password are required for login.");
-      triggerShake();
-      setIsLoading(false);
-      return;
+    const { fullName, email, organizationName, password } = formData;
+
+    if (isLoginMode) {
+      if (!email || !password) {
+        toast.error("Email and Password are required for login.");
+        triggerShake();
+        setIsLoading(false);
+        return;
+      }
+      try {
+        console.log("Attempting login with:", { email, password: "[REDACTED]" });
+        await login(email, password);
+        toast.success("Login successful!");
+        
+        // Check if there's a pending LinkedIn connection to complete
+        const pendingLinkedInState = sessionStorage.getItem('pendingLinkedInState');
+        const pendingLinkedInCode = sessionStorage.getItem('pendingLinkedInCode');
+        
+        // Redirect after a short delay to allow the toast to be seen
+        setTimeout(() => {
+          if (pendingLinkedInState && pendingLinkedInCode) {
+            console.log("Found pending LinkedIn connection with code and state, redirecting to process it");
+            // Construct a URL to the social dashboard with the LinkedIn parameters
+            const linkedInRedirectUrl = `/social-dashboard?code=${pendingLinkedInCode}&state=${pendingLinkedInState}`;
+            
+            // Clear the pending LinkedIn data
+            sessionStorage.removeItem('pendingLinkedInState');
+            sessionStorage.removeItem('pendingLinkedInCode');
+            
+            // Redirect to process the LinkedIn connection
+            navigate(linkedInRedirectUrl);
+          } else if (pendingLinkedInState) {
+            console.log("Found pending LinkedIn state, redirecting to complete connection");
+            // Construct a URL to the social dashboard with the LinkedIn parameters
+            const linkedInRedirectUrl = `/social-dashboard?linkedin_connected=true&state=${pendingLinkedInState}`;
+            
+            // Clear the pending LinkedIn state
+            sessionStorage.removeItem('pendingLinkedInState');
+            
+            // Redirect to complete the LinkedIn connection
+            navigate(linkedInRedirectUrl);
+          } else {
+            // Check if there's a saved redirect path
+            const redirectPath = sessionStorage.getItem('redirectAfterLogin');
+            
+            if (redirectPath) {
+              console.log(`Redirecting to saved path after login: ${redirectPath}`);
+              sessionStorage.removeItem('redirectAfterLogin'); // Clear the saved path
+              navigate(redirectPath);
+            } else {
+              // Default redirect to dashboard
+              navigate("/social-dashboard");
+            }
+          }
+        }, 1500);
+      } catch (err) {
+        console.error("Login error details:", err);
+        // Handle specific Firebase errors
+        if (err.code === "auth/invalid-credential") {
+          toast.error("Invalid email or password. Please check your credentials or register if you don't have an account.");
+        } else if (err.code === "auth/configuration-not-found") {
+          toast.error("Authentication service is misconfigured. Please contact support.");
+        } else {
+          toast.error(err.message || "Login failed. Please check your credentials.");
+        }
+        triggerShake();
+      } finally {
+        setIsLoading(false);
+      }
+    } else {
+      // Registration mode
+      if (!fullName || !email || !organizationName || !password) {
+        toast.error("All fields are required for registration.");
+        triggerShake();
+        setIsLoading(false);
+        return;
+      }
+      if (password.length < 6) {
+        toast.error("Password must be at least 6 characters long.");
+        triggerShake();
+        setIsLoading(false);
+        return;
+      }
+      try {
+        await register(email, password, fullName, organizationName);
+        toast.success("Registration successful! Please login to continue.");
+        setIsLoginMode(true);
+        setFormData({
+          ...formData,
+          password: "",
+        });
+      } catch (err) {
+        if (err.code === "auth/email-already-in-use") {
+          toast.error("Email is already in use. Please login instead.");
+        } else {
+          toast.error(err.message || "Registration failed. Please try again.");
+        }
+        triggerShake();
+      } finally {
+        setIsLoading(false);
+      }
     }
-    try {
-      const response = await axios.post(`${API_BASE_URL}/login`, { email, password });
-      toast.success(response.data.message || "Login successful!");
-      // Store token and user info in localStorage
-      localStorage.setItem("authToken", response.data.token); // Assuming the API returns a token
-      localStorage.setItem("user", JSON.stringify({ full_name: response.data.full_name || "User", email }));
-      setTimeout(() => {
-        navigate("/social-dashboard");
-      }, 1500);
-    } catch (err) {
-      toast.error(err.response?.data?.detail || "Login failed. Please check your credentials.");
-      triggerShake();
-    }
-  } else {
-    // Registration mode (unchanged)
-    if (!fullName || !email || !organizationName || !password) {
-      toast.error("All fields are required for registration.");
-      triggerShake();
-      setIsLoading(false);
-      return;
-    }
-    if (password.length < 6) {
-      toast.error("Password must be at least 6 characters long.");
-      triggerShake();
-      setIsLoading(false);
-      return;
-    }
-    try {
-      const response = await axios.post(`${API_BASE_URL}/register`, {
-        full_name: fullName,
-        email,
-        organization_name: organizationName,
-        password,
-      });
-      toast.success("Registration successful! Please login to continue.");
-      setIsLoginMode(true);
-      setFormData({
-        fullName: "",
-        email: email,
-        organizationName: "",
-        password: "",
-      });
-    } catch (err) {
-      toast.error(err.response?.data?.detail || "Registration failed. Please try again.");
-      triggerShake();
-    }
-  }
-  setIsLoading(false);
-};
+  };
 
   return (
     <motion.div
+      className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-50 via-white to-sky-50 p-4 relative" /* Added relative position to fix framer-motion warning */
       initial="initial"
       animate="in"
       exit="out"
       variants={pageVariants}
-      transition={{ duration: 0.3 }}
-      className="min-h-screen bg-gradient-to-br from-slate-100 via-sky-100 to-indigo-100 flex items-center justify-center p-4 selection:bg-indigo-500 selection:text-white"
     >
-      <ToastContainer
-        position="top-right"
-        autoClose={3000}
-        hideProgressBar={false}
-        newestOnTop={false}
-        closeOnClick
-        rtl={false}
-        pauseOnFocusLoss
-        draggable
-        pauseOnHover
-        theme="colored"
-      />
+      <ToastContainer position="top-center" autoClose={3000} />
 
       <motion.div
+        className={`w-full max-w-md ${shake ? "animate-form-shake" : ""}`}
         variants={cardVariants}
         initial="initial"
         animate="animate"
-        className={`w-full max-w-md ${shake ? "animate-form-shake" : ""}`}
       >
-        <div className="relative bg-white rounded-2xl shadow-2xl overflow-hidden border border-slate-200/70">
-          <div className="absolute top-0 left-0 w-full h-2.5 bg-gradient-to-r from-sky-500 via-indigo-500 to-purple-500"></div>
+        <div className="bg-white rounded-2xl shadow-xl overflow-hidden">
+          <div className="relative">
+            <div className="absolute inset-0 bg-gradient-to-r from-indigo-500 to-sky-500 transform -skew-y-6 sm:skew-y-0 sm:-rotate-6 sm:rounded-3xl"></div>
 
-          <div className="relative flex items-center justify-center py-5 px-4">
-            <div className="relative w-72 h-12 bg-indigo-50 rounded-full p-1 flex items-center">
-              <motion.div
-                className="absolute top-1 left-1 w-1/2 h-10 rounded-full bg-indigo-600 shadow-md"
-                animate={isLoginMode ? { x: 0 } : { x: "100%" }}
-                transition={{ type: "spring", stiffness: 350, damping: 30 }}
-              />
-              <button
-                type="button"
-                className={`relative flex-1 h-full rounded-full text-sm font-medium z-10 transition-colors duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-indigo-50 ${
-                  isLoginMode ? "text-white" : "text-indigo-700 hover:text-indigo-900"
-                }`}
-                onClick={() => toggleMode(true)}
-              >
-                Sign In
-              </button>
-              <button
-                type="button"
-                className={`relative flex-1 h-full rounded-full text-sm font-medium z-10 transition-colors duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-indigo-50 ${
-                  !isLoginMode ? "text-white" : "text-indigo-700 hover:text-indigo-900"
-                }`}
-                onClick={() => toggleMode(false)}
-              >
-                Register
-              </button>
-            </div>
-          </div>
-
-          <div className="px-8 pb-8 pt-2">
-            <motion.div variants={itemVariants} className="text-center mb-8">
-              <h2 className="text-3xl font-bold text-slate-800">
-                {isLoginMode ? "Welcome Back!" : "Create Account"}
-              </h2>
-              <p className="text-slate-500 mt-2 text-sm">
-                {isLoginMode
-                  ? "Sign in to access your SocialSync dashboard."
-                  : "Join SocialSync and streamline your social media."}
-              </p>
-            </motion.div>
-
-            <form onSubmit={handleSubmit} className="space-y-5">
-              <AnimatePresence mode="popLayout">
-                {!isLoginMode && (
-                  <motion.div
-                    key="fullName"
-                    variants={itemVariants}
-                    initial="initial"
-                    animate="animate"
-                    exit="exit"
-                  >
-                    <div className="relative">
-                      <FiUser className="absolute top-1/2 left-3.5 -translate-y-1/2 h-5 w-5 text-slate-400" />
-                      <input
-                        id="fullName"
-                        name="fullName"
-                        type="text"
-                        autoComplete="name"
-                        required={!isLoginMode}
-                        value={formData.fullName}
-                        onChange={handleChange}
-                        className="pl-11 w-full px-4 py-3 rounded-xl border border-slate-300 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition duration-200 placeholder-slate-400"
-                        placeholder="Full Name"
-                      />
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-
-              <AnimatePresence mode="popLayout">
-                {!isLoginMode && (
-                  <motion.div
-                    key="organizationName"
-                    variants={itemVariants}
-                    initial="initial"
-                    animate="animate"
-                    exit="exit"
-                  >
-                    <div className="relative">
-                      <FiBriefcase className="absolute top-1/2 left-3.5 -translate-y-1/2 h-5 w-5 text-slate-400" />
-                      <input
-                        id="organizationName"
-                        name="organizationName"
-                        type="text"
-                        autoComplete="organization"
-                        required={!isLoginMode}
-                        value={formData.organizationName}
-                        onChange={handleChange}
-                        className="pl-11 w-full px-4 py-3 rounded-xl border border-slate-300 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition duration-200 placeholder-slate-400"
-                        placeholder="Organization Name"
-                      />
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-
-              <motion.div variants={itemVariants}>
-                <div className="relative">
-                  <FiMail className="absolute top-1/2 left-3.5 -translate-y-1/2 h-5 w-5 text-slate-400" />
-                  <input
-                    id="email"
-                    name="email"
-                    type="email"
-                    autoComplete="email"
-                    required
-                    value={formData.email}
-                    onChange={handleChange}
-                    className="pl-11 w-full px-4 py-3 rounded-xl border border-slate-300 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition duration-200 placeholder-slate-400"
-                    placeholder="Email address"
+            <div className="relative bg-white rounded-lg px-4 py-5 sm:p-6">
+              <div className="flex items-center justify-center h-12 bg-gray-100 rounded-full p-1 mb-6">
+                <div className="relative w-full h-full rounded-full">
+                  <div
+                    className="absolute inset-0 bg-gradient-to-r from-indigo-600 to-indigo-400 rounded-full transition-all duration-300 ease-in-out"
+                    style={{
+                      transform: isLoginMode ? "translateX(0)" : "translateX(100%)",
+                      width: "50%",
+                    }}
                   />
-                </div>
-              </motion.div>
-
-              <motion.div variants={itemVariants}>
-                <div className="relative">
-                  <FiLock className="absolute top-1/2 left-3.5 -translate-y-1/2 h-5 w-5 text-slate-400" />
-                  <input
-                    id="password"
-                    name="password"
-                    type={showPassword ? "text" : "password"}
-                    autoComplete={isLoginMode ? "current-password" : "new-password"}
-                    required
-                    value={formData.password}
-                    onChange={handleChange}
-                    className="pl-11 pr-10 w-full px-4 py-3 rounded-xl border border-slate-300 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition duration-200 placeholder-slate-400"
-                    placeholder="Password"
-                  />
-                  <button
-                    type="button"
-                    className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-600 transition-colors"
-                    onClick={() => setShowPassword(!showPassword)}
-                    aria-label={showPassword ? "Hide password" : "Show password"}
-                  >
-                    {showPassword ? (
-                      <FiEyeOff className="h-5 w-5" />
-                    ) : (
-                      <FiEye className="h-5 w-5" />
-                    )}
-                  </button>
-                </div>
-              </motion.div>
-
-              {isLoginMode && (
-                <motion.div variants={itemVariants} className="flex items-center justify-end">
-                  <button
-                    type="button"
-                    onClick={() => navigate("/forgot-password")}
-                    className="text-sm font-medium text-indigo-600 hover:text-indigo-500 hover:underline focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:ring-offset-1 rounded"
-                  >
-                    Forgot password?
-                  </button>
-                </motion.div>
-              )}
-
-              <motion.div variants={itemVariants}>
-                <button
-                  type="submit"
-                  disabled={isLoading}
-                  className={`w-full flex justify-center items-center py-3.5 px-4 border border-transparent rounded-xl shadow-sm text-base font-medium text-white
-                    ${ isLoginMode
-                      ? "bg-indigo-600 hover:bg-indigo-700 focus:ring-indigo-500"
-                      : "bg-sky-600 hover:bg-sky-700 focus:ring-sky-500"
-                    } focus:outline-none focus:ring-2 focus:ring-offset-2
-                    transition-all duration-200 ease-in-out transform hover:scale-[1.02]
-                    ${isLoading ? "opacity-70 cursor-not-allowed" : "active:scale-[0.98]"}`}
-                >
-                  {isLoading ? (
-                    <>
-                      <FiLoader className="animate-spin mr-2.5 h-5 w-5" />
-                      {isLoginMode ? "Signing In..." : "Creating Account..."}
-                    </>
-                  ) : (
-                    <>
-                      {isLoginMode ? (
-                        <>
-                          <FiLogIn className="mr-2.5 h-5 w-5" />
-                          Sign In
-                        </>
-                      ) : (
-                        <>
-                          <FiUserPlus className="mr-2.5 h-5 w-5" />
-                          Create Account
-                        </>
-                      )}
-                    </>
-                  )}
-                </button>
-              </motion.div>
-            </form>
-
-            <motion.div variants={itemVariants} className="mt-8">
-              <div className="relative">
-                <div className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t border-slate-300"></div>
-                </div>
-                <div className="relative flex justify-center text-xs">
-                  <span className="px-2 bg-white text-slate-500">
-                    {isLoginMode ? "New to SocialSync?" : "Already have an account?"}
-                  </span>
+                  <div className="relative flex h-full">
+                    <button
+                      type="button"
+                      className={`flex-1 flex items-center justify-center text-sm font-medium transition-colors duration-300 ${isLoginMode ? "text-white" : "text-gray-700"}`}
+                      onClick={() => toggleMode(true)}
+                    >
+                      <FiLogIn className="mr-2" /> Sign In
+                    </button>
+                    <button
+                      type="button"
+                      className={`flex-1 flex items-center justify-center text-sm font-medium transition-colors duration-300 ${!isLoginMode ? "text-white" : "text-gray-700"}`}
+                      onClick={() => toggleMode(false)}
+                    >
+                      <FiUserPlus className="mr-2" /> Register
+                    </button>
+                  </div>
                 </div>
               </div>
 
-              <button
-                type="button"
-                onClick={() => toggleMode(!isLoginMode)}
-                className="mt-4 w-full text-center py-2.5 px-4 text-sm font-semibold text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-indigo-400 rounded-lg"
-              >
-                {isLoginMode ? "Create your SocialSync account" : "Sign in to your account"}
-              </button>
-            </motion.div>
+              <h2 className="text-2xl font-bold text-center text-gray-800 mb-6">
+                {isLoginMode ? "Welcome Back!" : "Create an Account"}
+              </h2>
+
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <AnimatePresence mode="wait">
+                  {!isLoginMode && (
+                    <motion.div
+                      key="fullName"
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: "auto" }}
+                      exit={{ opacity: 0, height: 0 }}
+                      transition={{ duration: 0.2 }}
+                    >
+                      <div className="relative">
+                        <FiUser className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+                        <input
+                          type="text"
+                          name="fullName"
+                          id="fullName"
+                          placeholder="Full Name"
+                          value={formData.fullName}
+                          onChange={handleChange}
+                          className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                        />
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                <AnimatePresence mode="wait">
+                  {!isLoginMode && (
+                    <motion.div
+                      key="organizationName"
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: "auto" }}
+                      exit={{ opacity: 0, height: 0 }}
+                      transition={{ duration: 0.2 }}
+                    >
+                      <div className="relative">
+                        <FiBriefcase className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+                        <input
+                          type="text"
+                          name="organizationName"
+                          id="organizationName"
+                          placeholder="Organization Name"
+                          value={formData.organizationName}
+                          onChange={handleChange}
+                          className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                        />
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                <div className="relative">
+                  <FiMail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+                  <input
+                    type="email"
+                    name="email"
+                    id="email"
+                    placeholder="Email Address"
+                    value={formData.email}
+                    onChange={handleChange}
+                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  />
+                </div>
+
+                <div className="relative">
+                  <FiLock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    name="password"
+                    id="password"
+                    placeholder="Password"
+                    value={formData.password}
+                    onChange={handleChange}
+                    className="w-full pl-10 pr-10 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  >
+                    {showPassword ? <FiEyeOff /> : <FiEye />}
+                  </button>
+                </div>
+
+                {isLoginMode && (
+                  <div className="flex justify-end">
+                    <Link
+                      to="/forgot-password"
+                      className="text-sm text-indigo-600 hover:text-indigo-800"
+                    >
+                      Forgot password?
+                    </Link>
+                  </div>
+                )}
+
+                {/* Test Credentials Button */}
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    onClick={useTestCredentials}
+                    className="w-full flex justify-center items-center px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 border border-gray-300 rounded-md hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors"
+                  >
+                    <FiUser className="mr-2" /> Use Test Credentials
+                  </button>
+                  <p className="text-xs text-gray-500 mt-1 text-center">For testing purposes only</p>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={isLoading}
+                  className={`w-full flex justify-center items-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 ${isLoading ? "opacity-70 cursor-not-allowed" : ""}`}
+                >
+                  {isLoading ? (
+                    <>
+                      <FiLoader className="animate-spin mr-2" />
+                      {isLoginMode ? "Signing in..." : "Creating account..."}
+                    </>
+                  ) : (
+                    <>
+                      {isLoginMode ? "Sign in" : "Create account"}
+                    </>
+                  )}
+                </button>
+              </form>
+            </div>
           </div>
         </div>
-
-        <motion.div variants={itemVariants} className="mt-8 text-center text-xs text-slate-500">
-          <p>
-            By continuing, you agree to our{" "}
-            <a href="#" className="font-medium text-indigo-600 hover:text-indigo-500 hover:underline">
-              Terms of Service
-            </a>{" "}
-            and{" "}
-            <a href="#" className="font-medium text-indigo-600 hover:text-indigo-500 hover:underline">
-              Privacy Policy
-            </a>
-            .
-          </p>
-        </motion.div>
       </motion.div>
 
-      {/* This style tag is for the custom shake animation.
-          Ideally, this would be in your global CSS or tailwind.config.js */}
-      <style>
-        {`
-          @keyframes formShake {
-            0%, 100% { transform: translateX(0); }
-            10%, 30%, 50%, 70%, 90% { transform: translateX(-6px); }
-            20%, 40%, 60%, 80% { transform: translateX(6px); }
-          }
-          .animate-form-shake {
-            animation: formShake 0.4s cubic-bezier(.36,.07,.19,.97) both;
-          }
-        `}
-      </style>
+      {/* This style tag is for the custom shake animation */}
+      <style dangerouslySetInnerHTML={{ __html: `
+        @keyframes formShake {
+          0%, 100% { transform: translateX(0); }
+          10%, 30%, 50%, 70%, 90% { transform: translateX(-5px); }
+          20%, 40%, 60%, 80% { transform: translateX(5px); }
+        }
+        .animate-form-shake {
+          animation: formShake 0.5s cubic-bezier(.36,.07,.19,.97) both;
+        }
+      `}} />
     </motion.div>
   );
 };

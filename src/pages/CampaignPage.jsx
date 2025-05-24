@@ -1,413 +1,3 @@
-// import React, { useState, useRef, useEffect } from 'react';
-// import { useLocation, useNavigate } from 'react-router-dom';
-// import Sidebar from '../components/Sidebar';
-// import Navbar from '../components/Navbar';
-// import { FiDownload, FiCheck, FiX } from 'react-icons/fi';
-// import { jsPDF } from 'jspdf';
-// import axios from 'axios';
-//
-// const CampaignPage = () => {
-//   const location = useLocation();
-//   const navigate = useNavigate();
-//   const campaignData = location.state?.campaignData;
-//   const campaignId = location.pathname.split('/').pop();
-//   const [isLoadedCampaign, setIsLoadedCampaign] = useState(false);
-//   const [isLoading, setIsLoading] = useState(false);
-//
-//   const [campaignName, setCampaignName] = useState(campaignData?.name || 'Campaign');
-//   const [posts, setPosts] = useState([]);
-//   const [originalPosts, setOriginalPosts] = useState({});
-//   const [isSaving, setIsSaving] = useState(false);
-//   const contentRefs = useRef({});
-//
-//   const cleanText = (text) => {
-//     if (!text) return '';
-//     return text.replace(/\*\*/g, '').replace(/#+\s*/g, '').trim();
-//   };
-//
-// useEffect(() => {
-//   if (campaignId && campaignId !== 'campaign') {
-//     const loadCampaign = async () => {
-//       setIsLoading(true);
-//       try {
-//         const response = await axios.get(`http://localhost:8000/api/campaign-schedules/get-campaign/${campaignId}`);
-//
-//         if (response.data) {
-//           const loadedCampaign = response.data;
-//
-//           setPosts(loadedCampaign.posts.map((post, idx) => ({
-//             id: idx + 1,
-//             title: post.title,
-//             type: post.type,
-//             schedule: post.schedule,
-//             description: post.description,
-//             cta: post.cta,
-//             isEditing: false,
-//           })));
-//
-//           setCampaignName(loadedCampaign.campaign_name || 'Campaign');
-//           setIsLoadedCampaign(true);
-//         } else {
-//           throw new Error('Empty response from server');
-//         }
-//       } catch (error) {
-//         console.error('Error loading campaign:', error);
-//         alert(`Failed to load campaign: ${error.response?.data?.detail || error.message}`);
-//         navigate('/campaigns'); // Redirect to campaigns list
-//       } finally {
-//         setIsLoading(false);
-//       }
-//     };
-//
-//     loadCampaign();
-//   } else if (campaignData) {
-//     // Handle new campaign data from location state
-//     const rawContent = typeof campaignData?.raw === 'string'
-//       ? campaignData.raw
-//       : campaignData?.raw?.raw;
-//
-//     const raw = cleanText(rawContent);
-//     const postSections = raw.split(/Post \d+/).map((s) => s.trim()).filter(Boolean);
-//     const validPosts = postSections.filter((section) => section.includes('1. What to Post'));
-//
-//     const initialPosts = validPosts.map((section, idx) => {
-//       const lines = section.split('\n').filter(Boolean);
-//       const getField = (label) =>
-//         lines.find((line) => line.startsWith(label))?.split(':')?.slice(1).join(':')?.trim() || '';
-//
-//       const descIndex = lines.findIndex((line) => line.startsWith('4. Description:'));
-//       const description =
-//         descIndex !== -1
-//           ? lines.slice(descIndex).join('\n').replace('4. Description:', '').trim()
-//           : '';
-//
-//       return {
-//         id: idx + 1,
-//         title: getField('1. What to Post'),
-//         type: getField('2. Type of Post'),
-//         schedule: getField('3. Posting Schedule'),
-//         description,
-//         cta: getField('5. Call-to-Action'),
-//         isEditing: false,
-//       };
-//     });
-//
-//     setPosts(initialPosts);
-//     setCampaignName(campaignData?.name || 'Campaign');
-//   }
-// }, [campaignId, campaignData, navigate]);
-//
-//   const toggleEdit = (id) => {
-//     setPosts((prev) =>
-//       prev.map((post) =>
-//         post.id === id
-//           ? {
-//               ...post,
-//               isEditing: true,
-//             }
-//           : post
-//       )
-//     );
-//
-//     setOriginalPosts((prev) => ({
-//       ...prev,
-//       [id]: posts.find((p) => p.id === id),
-//     }));
-//   };
-//
-//   const handleDiscard = (id) => {
-//     const original = originalPosts[id];
-//     if (original) {
-//       setPosts((prev) =>
-//         prev.map((post) => (post.id === id ? { ...original, isEditing: false } : post))
-//       );
-//     }
-//   };
-//
-//   const handleAccept = (id) => {
-//     const card = contentRefs.current[id];
-//     if (card) {
-//       const getText = (selector, prefix) => {
-//         const raw = card.querySelector(selector)?.innerText || '';
-//         if (!raw.includes(prefix)) return raw.trim();
-//         return raw.replace(prefix, '').trim();
-//       };
-//
-//       const updatedPost = {
-//         title: getText('[data-field="title"]', '📌'),
-//         type: getText('[data-field="type"]', '📝 Type:'),
-//         schedule: getText('[data-field="schedule"]', '📅 Schedule:'),
-//         description: getText('[data-field="description"]', '🧾 Description:'),
-//         cta: getText('[data-field="cta"]', '🔗'),
-//       };
-//
-//       setPosts((prev) =>
-//         prev.map((post) =>
-//           post.id === id ? { ...post, ...updatedPost, isEditing: false } : post
-//         )
-//       );
-//     }
-//   };
-//
-//   const handleSaveSchedule = async () => {
-//     const hasEmptyFields = posts.some(
-//       (post) =>
-//         !post.title || !post.type || !post.schedule || !post.description || !post.cta
-//     );
-//
-//     if (hasEmptyFields) {
-//       alert('⚠️ Please fill in all fields before saving the schedule.');
-//       return;
-//     }
-//
-//     setIsSaving(true);
-//     try {
-//       const payload = {
-//         campaignName: campaignName,
-//         theme: campaignData?.theme || '',
-//         posts: posts.map((post) => ({
-//           title: post.title,
-//           type: post.type,
-//           schedule: post.schedule,
-//           description: post.description,
-//           cta: post.cta,
-//         })),
-//         startDate: campaignData?.dates?.[0] || '',
-//         endDate: campaignData?.dates?.slice(-1)[0] || '',
-//       };
-//
-//       const response = await axios.post('http://localhost:8000/api/save-campaign/', payload, {
-//         headers: {
-//           'Content-Type': 'application/json'
-//         }
-//       });
-//
-//       if (response.status === 200 || response.status === 201) {
-//         alert('✅ Campaign schedule saved successfully!');
-//         navigate(`/saved-campaigns`);
-//
-//       } else {
-//         alert('⚠️ Failed to save campaign schedule.');
-//       }
-//     } catch (error) {
-//       console.error('Error saving campaign:', error);
-//       if (error.response) {
-//         alert(`❌ Error saving campaign: ${error.response.data.detail || error.response.statusText}`);
-//       } else {
-//         alert('❌ Error saving campaign schedule.');
-//       }
-//     } finally {
-//       setIsSaving(false);
-//     }
-//   };
-//
-//   const handleDownloadPDF = () => {
-//     const postCount = posts.length;
-//     const dates = isLoadedCampaign
-//       ? posts.map(post => post.schedule)
-//       : campaignData?.dates || [];
-//
-//     let metadata = `📅 Campaign Schedule\n\n`;
-//     metadata += `Total Posts: ${postCount}\n`;
-//     if (dates.length) {
-//       metadata += `Post Dates:\n${dates.map((d, i) => `- Post ${i + 1}: ${d}`).join('\n')}\n`;
-//     }
-//
-//     const content = posts
-//       .map(
-//         (post, idx) => `
-// Post ${idx + 1}
-// 1. What to Post: ${post.title}
-// 2. Type of Post: ${post.type}
-// 3. Posting Schedule: ${post.schedule}
-// 4. Description:
-// ${post.description}
-// 5. Call-to-Action: ${post.cta}
-//     `
-//       )
-//       .join('\n\n');
-//
-//     const doc = new jsPDF();
-//     const pageHeight = doc.internal.pageSize.height;
-//     const marginTop = 20;
-//     const lineHeight = 7;
-//     const lines = doc.splitTextToSize(`${metadata}\n\n${content}`, 180);
-//     let cursorY = marginTop;
-//
-//     doc.setFont('helvetica', 'normal');
-//     doc.setFontSize(12);
-//
-//     lines.forEach((line) => {
-//       if (cursorY + lineHeight > pageHeight - 15) {
-//         doc.addPage();
-//         cursorY = marginTop;
-//       }
-//       doc.text(line, 15, cursorY);
-//       cursorY += lineHeight;
-//     });
-//
-//     doc.save(`${campaignName.replace(/\s+/g, '_')}_schedule.pdf`);
-//   };
-//
-//   return (
-//     <div className="flex bg-gray-100 min-h-screen font-[Inter]">
-//       {/* Sidebar */}
-//       <div className="w-[250px] fixed top-0 left-0 bottom-0 z-20 bg-white shadow-lg">
-//         <Sidebar />
-//       </div>
-//
-//       {/* Main Content */}
-//       <div className="flex flex-col flex-1 ml-[250px]">
-//         <Navbar />
-//
-//         <main className="flex-1 overflow-y-auto p-8">
-//           <div className="max-w-6xl mx-auto">
-//             <h1 className="text-4xl font-bold text-gray-800 mb-8">
-//               🎯 {campaignName} Schedule
-//               {isLoadedCampaign && <span className="text-sm ml-2 text-gray-500">(Saved Campaign)</span>}
-//             </h1>
-//
-//             {isLoading ? (
-//               <div className="flex justify-center py-8">
-//                 <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
-//               </div>
-//             ) : (
-//               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-//                 {posts.map((post) => (
-//                   <div
-//                     key={post.id}
-//                     ref={(el) => (contentRefs.current[post.id] = el)}
-//                     className="bg-white rounded-2xl shadow-md border border-gray-200 p-6 hover:shadow-xl transition-all duration-300"
-//                   >
-//                     <h2 className="text-lg font-bold text-pink-600 mb-2">
-//                       💌 Post {post.id}
-//                     </h2>
-//
-//                     <div
-//                       data-field="title"
-//                       contentEditable={post.isEditing}
-//                       suppressContentEditableWarning={true}
-//                       className="text-md font-semibold text-gray-800 mb-1"
-//                       id={`post-${post.id}-title`}
-//                       name={`post-${post.id}-title`}
-//                     >
-//                       {post.isEditing ? post.title : <>📌 {post.title}</>}
-//                     </div>
-//
-//                     <div
-//                       data-field="schedule"
-//                       contentEditable={post.isEditing}
-//                       suppressContentEditableWarning={true}
-//                       className="text-sm text-gray-600 mb-1"
-//                       id={`post-${post.id}-schedule`}
-//                       name={`post-${post.id}-schedule`}
-//                     >
-//                       {post.isEditing ? post.schedule : <>📅 <strong>Schedule:</strong> {post.schedule}</>}
-//                     </div>
-//
-//                     <div
-//                       data-field="type"
-//                       contentEditable={post.isEditing}
-//                       suppressContentEditableWarning={true}
-//                       className="text-sm text-gray-600 mb-1"
-//                       id={`post-${post.id}-type`}
-//                       name={`post-${post.id}-type`}
-//                     >
-//                       {post.isEditing ? post.type : <>📝 <strong>Type:</strong> {post.type}</>}
-//                     </div>
-//
-//                     <div
-//                       data-field="description"
-//                       contentEditable={post.isEditing}
-//                       suppressContentEditableWarning={true}
-//                       className="text-sm text-gray-700 whitespace-pre-wrap mb-2"
-//                       id={`post-${post.id}-description`}
-//                       name={`post-${post.id}-description`}
-//                     >
-//                       {post.isEditing ? post.description : (
-//                         <>
-//                           🧾 <strong>Description:</strong>
-//                           <br />
-//                           {post.description}
-//                         </>
-//                       )}
-//                     </div>
-//
-//                     <div
-//                       data-field="cta"
-//                       contentEditable={post.isEditing}
-//                       suppressContentEditableWarning={true}
-//                       className="text-sm text-purple-600 font-medium"
-//                       id={`post-${post.id}-cta`}
-//                       name={`post-${post.id}-cta`}
-//                     >
-//                       {post.isEditing ? post.cta : <>🔗 {post.cta}</>}
-//                     </div>
-//
-//                     <div className="flex mt-4 gap-3">
-//                       {post.isEditing ? (
-//                         <>
-//                           <button
-//                             onClick={() => handleAccept(post.id)}
-//                             className="flex items-center gap-2 border border-emerald-600 text-emerald-700 font-medium px-4 py-2 rounded-full hover:bg-emerald-100 transition-all duration-200"
-//                           >
-//                             <FiCheck className="text-md" />
-//                             Accept
-//                           </button>
-//                           <button
-//                             onClick={() => handleDiscard(post.id)}
-//                             className="flex items-center gap-2 border border-rose-600 text-rose-700 font-medium px-4 py-2 rounded-full hover:bg-rose-100 transition-all duration-200"
-//                           >
-//                             <FiX className="text-md" />
-//                             Discard
-//                           </button>
-//                         </>
-//                       ) : (
-//                         <button
-//                           onClick={() => toggleEdit(post.id)}
-//                           className="flex items-center gap-2 border border-blue-600 text-blue-700 font-medium px-4 py-2 rounded-full hover:bg-blue-100 transition-all duration-200"
-//                         >
-//                           ✏️ Edit
-//                         </button>
-//                       )}
-//                     </div>
-//                   </div>
-//                 ))}
-//               </div>
-//             )}
-//           </div>
-//         </main>
-//
-//         {/* Sticky Footer */}
-//         <footer className="sticky bottom-0 bg-white border-t py-4 px-8 shadow-inner z-10">
-//           <div className="max-w-6xl mx-auto flex justify-between items-center">
-//             <button
-//               onClick={handleDownloadPDF}
-//               className="flex items-center gap-2 border border-gray-700 text-gray-700 font-medium px-5 py-2 rounded-full hover:bg-gray-100 transition-all duration-200"
-//             >
-//               <FiDownload className="text-lg" />
-//               Download as PDF
-//             </button>
-//
-//             <button
-//               disabled={isSaving}
-//               onClick={handleSaveSchedule}
-//               className={`flex items-center gap-2 border border-emerald-600 text-emerald-700 font-medium px-5 py-2 rounded-full transition-all duration-200 ${
-//                 isSaving ? 'opacity-50 cursor-not-allowed' : 'hover:bg-emerald-100'
-//               }`}
-//             >
-//               <FiCheck className="text-lg" />
-//               {isSaving ? 'Saving...' : 'Save Schedule'}
-//             </button>
-//           </div>
-//         </footer>
-//       </div>
-//     </div>
-//   );
-// };
-//
-// export default CampaignPage;
-
 import React, { useState, useRef, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
@@ -416,13 +6,15 @@ import { FiDownload, FiCheck, FiX, FiEdit2, FiSave, FiShare2, FiCalendar, FiCopy
 import { FaRegLightbulb, FaRegClock, FaRegStickyNote, FaRegHandPointer } from 'react-icons/fa';
 import { RiMagicLine } from 'react-icons/ri';
 import { jsPDF } from 'jspdf';
-import axios from 'axios';
 import { ToastContainer, toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
+import { useAuth } from '../contexts/AuthContext';
+import api from '../utils/api';
 
 const CampaignPage = () => {
   const location = useLocation();
   const navigate = useNavigate();
+  const { currentUser } = useAuth();
   const campaignData = location.state?.campaignData;
   const campaignId = location.pathname.split('/').pop();
   const [isLoadedCampaign, setIsLoadedCampaign] = useState(false);
@@ -441,60 +33,92 @@ const CampaignPage = () => {
     return text.replace(/\*\*/g, '').replace(/#+\s*/g, '').trim();
   };
 
-useEffect(() => {
-  if (campaignId && campaignId !== 'campaign') {
-    const loadCampaign = async () => {
-      setIsLoading(true);
-      try {
-        const response = await axios.get(`http://localhost:8000/api/get-campaign/${campaignId}`);
-
-        if (response.data) {
-          const loadedCampaign = response.data;
-
-          setPosts(loadedCampaign.posts.map((post, idx) => ({
+  const parsePosts = (campaignData) => {
+    let parsedPosts = [];
+    
+    try {
+      // Check if we have parsed_posts from the new structure
+      if (campaignData.parsed_posts && Array.isArray(campaignData.parsed_posts)) {
+        parsedPosts = campaignData.parsed_posts.map((post, idx) => ({
+          id: idx + 1,
+          title: post.title || `Post ${idx + 1}`,
+          type: post.content_type || 'Content Post',
+          schedule: post.schedule || 'To be scheduled',
+          description: post.description || 'No description available',
+          cta: post.call_to_action || 'Engage with this post',
+          isEditing: false,
+        }));
+      }
+      // Check for content.parsed_posts
+      else if (campaignData.content?.parsed_posts && Array.isArray(campaignData.content.parsed_posts)) {
+        parsedPosts = campaignData.content.parsed_posts.map((post, idx) => ({
+          id: idx + 1,
+          title: post.title || `Post ${idx + 1}`,
+          type: post.content_type || 'Content Post',
+          schedule: post.schedule || 'To be scheduled',
+          description: post.description || 'No description available',
+          cta: post.call_to_action || 'Engage with this post',
+          isEditing: false,
+        }));
+      }
+      // Check if we have posts with raw structure
+      else if (campaignData.posts) {
+        if (Array.isArray(campaignData.posts)) {
+          parsedPosts = campaignData.posts;
+        } else if (campaignData.posts.raw && campaignData.posts.raw.generated_posts) {
+          // Handle fallback content structure
+          parsedPosts = campaignData.posts.raw.generated_posts.map((post, idx) => ({
             id: idx + 1,
             title: post.title,
-            type: post.type,
+            type: post.content_type,
             schedule: post.schedule,
             description: post.description,
-            cta: post.cta,
+            cta: post.call_to_action,
             isEditing: false,
-          })));
-
-          setCampaignName(loadedCampaign.campaign_name || 'Campaign');
-          setIsLoadedCampaign(true);
-        } else {
-          throw new Error('Empty response from server');
+          }));
+        } else if (typeof campaignData.posts.raw === 'string') {
+          // Handle raw string content - parse it
+          const rawContent = cleanText(campaignData.posts.raw);
+          parsedPosts = parseRawStringContent(rawContent);
         }
-      } catch (error) {
-        console.error('Error loading campaign:', error);
-        toast.error(`Failed to load campaign: ${error.response?.data?.detail || error.message}`, {
-          position: "bottom-right",
-          autoClose: 5000,
-          hideProgressBar: false,
-          closeOnClick: true,
-          pauseOnHover: true,
-          draggable: true,
-          theme: "colored",
-        });
-        navigate('/campaigns');
-      } finally {
-        setIsLoading(false);
       }
-    };
+      // Handle campaignData.content structure from new campaign creation
+      else if (campaignData.content) {
+        if (campaignData.content.parsed_posts && Array.isArray(campaignData.content.parsed_posts)) {
+          parsedPosts = campaignData.content.parsed_posts.map((post, idx) => ({
+            id: idx + 1,
+            title: post.title || `Post ${idx + 1}`,
+            type: post.content_type || 'Content Post',
+            schedule: post.schedule || 'To be scheduled',
+            description: post.description || 'No description available',
+            cta: post.call_to_action || 'Engage with this post',
+            isEditing: false,
+          }));
+        } else if (typeof campaignData.content.raw === 'string') {
+          const rawContent = cleanText(campaignData.content.raw);
+          parsedPosts = parseRawStringContent(rawContent);
+        }
+      }
+      
+      // If still no posts, try to parse from raw if available
+      if (parsedPosts.length === 0 && campaignData.raw) {
+        const rawContent = cleanText(campaignData.raw);
+        parsedPosts = parseRawStringContent(rawContent);
+      }
+      
+    } catch (error) {
+      console.error('Error parsing posts:', error);
+      parsedPosts = [];
+    }
+    
+    return parsedPosts;
+  };
 
-    loadCampaign();
-  } else if (campaignData) {
-    // Handle new campaign data from location state
-    const rawContent = typeof campaignData?.raw === 'string'
-      ? campaignData.raw
-      : campaignData?.raw?.raw;
-
-    const raw = cleanText(rawContent);
-    const postSections = raw.split(/Post \d+/).map((s) => s.trim()).filter(Boolean);
+  const parseRawStringContent = (rawContent) => {
+    const postSections = rawContent.split(/Post \d+/).map((s) => s.trim()).filter(Boolean);
     const validPosts = postSections.filter((section) => section.includes('1. What to Post'));
 
-    const initialPosts = validPosts.map((section, idx) => {
+    return validPosts.map((section, idx) => {
       const lines = section.split('\n').filter(Boolean);
       const getField = (label) =>
         lines.find((line) => line.startsWith(label))?.split(':')?.slice(1).join(':')?.trim() || '';
@@ -507,20 +131,66 @@ useEffect(() => {
 
       return {
         id: idx + 1,
-        title: getField('1. What to Post'),
-        type: getField('2. Type of Post'),
-        schedule: getField('3. Posting Schedule'),
-        description,
-        cta: getField('5. Call-to-Action'),
+        title: getField('1. What to Post') || `Post ${idx + 1}`,
+        type: getField('2. Type of Post') || 'Content Post',
+        schedule: getField('3. Posting Schedule') || 'To be scheduled',
+        description: description || 'No description available',
+        cta: getField('5. Call-to-Action') || 'Engage with this post',
         isEditing: false,
       };
     });
+  };
 
-    setPosts(initialPosts);
-    setCampaignName(campaignData?.name || 'Campaign');
-  }
-}, [campaignId, campaignData, navigate]);
+  useEffect(() => {
+    if (!currentUser) {
+      toast.error('Please log in to view campaigns');
+      navigate('/auth');
+      return;
+    }
 
+    if (campaignId && campaignId !== 'campaign') {
+      const loadCampaign = async () => {
+        setIsLoading(true);
+        try {
+          const response = await api.get(`/campaign-schedules/get-campaign/${campaignId}`);
+
+          if (response.data) {
+            const loadedCampaign = response.data;
+            
+            // Parse posts using the updated parser
+            const campaignPosts = parsePosts(loadedCampaign);
+            
+            setPosts(campaignPosts);
+            setCampaignName(loadedCampaign.campaign_name || loadedCampaign.name || 'Campaign');
+            setIsLoadedCampaign(true);
+          } else {
+            throw new Error('Empty response from server');
+          }
+        } catch (error) {
+          console.error('Error loading campaign:', error);
+          toast.error(`Failed to load campaign: ${error.response?.data?.detail || error.message}`, {
+            position: "bottom-right",
+            autoClose: 5000,
+            hideProgressBar: false,
+            closeOnClick: true,
+            pauseOnHover: true,
+            draggable: true,
+            theme: "colored",
+          });
+          navigate('/campaigns');
+        } finally {
+          setIsLoading(false);
+        }
+      };
+
+      loadCampaign();
+    } else if (campaignData) {
+      // Handle new campaign data from location state
+      const campaignPosts = parsePosts(campaignData);
+      setPosts(campaignPosts);
+      setCampaignName(campaignData?.name || 'Campaign');
+    }
+  }, [campaignId, campaignData, navigate, currentUser]);
 
   const toggleEdit = (id) => {
     setPosts((prev) =>
@@ -586,69 +256,123 @@ useEffect(() => {
     }
   };
 
-const handleSaveSchedule = async () => {
-  const hasEmptyFields = posts.some(
-    (post) =>
-      !post.title || !post.type || !post.schedule || !post.description || !post.cta
-  );
+  const handleSaveSchedule = async () => {
+    const hasEmptyFields = posts.some(
+      (post) =>
+        !post.title || !post.type || !post.schedule || !post.description || !post.cta
+    );
 
-  if (hasEmptyFields) {
-    toast.warning('Please fill in all fields before saving the schedule', {
-      position: "bottom-right",
-      autoClose: 5000,
-      theme: "colored",
-    });
-    return;
-  }
-
-  setIsSaving(true);
-  try {
-    const payload = {
-      campaignName: campaignName,
-      theme: campaignData?.theme || '',
-      posts: posts.map((post) => ({
-        title: post.title,
-        type: post.type,
-        schedule: post.schedule,
-        description: post.description,
-        cta: post.cta,
-      })),
-      startDate: campaignData?.startDate || '',
-      endDate: campaignData?.endDate || '',
-    };
-
-    const response = await axios.post('http://localhost:8000/api/save-campaign/', payload, {
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    });
-
-    if (response.status === 200 || response.status === 201) {
-      toast.success('Campaign saved successfully!', {
-        position: "bottom-right",
-        autoClose: 3000,
-        theme: "colored",
-      });
-      setTimeout(() => {
-        navigate('/saved-campaigns');
-      }, 1500);
-    } else {
-      throw new Error('Failed to save campaign schedule');
-    }
-  } catch (error) {
-    console.error('Error saving campaign:', error);
-    toast.error(
-      `Error saving campaign: ${error.response?.data?.detail || error.message}`,
-      {
+    if (hasEmptyFields) {
+      toast.warning('Please fill in all fields before saving the schedule', {
         position: "bottom-right",
         autoClose: 5000,
         theme: "colored",
+      });
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      console.log('Saving campaign with posts:', posts);
+      
+      // Check if we're editing an existing campaign
+      const isExistingCampaign = campaignId && campaignId !== 'campaign';
+      
+      // Format posts for the backend
+      const formattedPosts = posts.map((post) => ({
+        title: post.title,
+        content_type: post.type,
+        schedule: post.schedule,
+        description: post.description,
+        call_to_action: post.cta,
+      }));
+      
+      const payload = {
+        campaign_name: campaignName, // Use the correct field name (campaign_name instead of name)
+        theme: campaignData?.theme || '',
+        parsed_posts: formattedPosts,
+        start_date: campaignData?.startDate || '',
+        end_date: campaignData?.endDate || '',
+        status: 'active',
+        post_count: posts.length
+      };
+
+      // If we're editing an existing campaign, include the ID
+      if (isExistingCampaign) {
+        payload.campaign_id = campaignId;
       }
-    );
-  } finally {
-    setIsSaving(false);
-  }
-};
+
+      // First check if a similar campaign already exists
+      let existingCampaigns = [];
+      try {
+        const campaignsResponse = await api.get('/campaign-schedules/get-campaigns');
+        existingCampaigns = Array.isArray(campaignsResponse.data) ? campaignsResponse.data : [];
+      } catch (err) {
+        console.warn('Could not check for existing campaigns:', err);
+      }
+
+      // Check for duplicates (same name and created within last 5 minutes)
+      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+      const similarCampaign = existingCampaigns.find(campaign => {
+        // Skip if this is the campaign we're editing
+        if (isExistingCampaign && campaign._id === campaignId) {
+          return false;
+        }
+        
+        // Check if name matches and was created recently
+        const campaignName = campaign.campaign_name || campaign.name;
+        const createdAt = new Date(campaign.created_at || campaign.createdAt || 0);
+        return campaignName === payload.campaign_name && createdAt > fiveMinutesAgo;
+      });
+
+      if (similarCampaign && !isExistingCampaign) {
+        console.log('Found similar existing campaign:', similarCampaign);
+        toast.info('A similar campaign was recently created. Redirecting to it.', {
+          position: "bottom-right",
+          autoClose: 3000,
+          theme: "colored",
+        });
+        
+        setTimeout(() => {
+          navigate(`/campaign/${similarCampaign._id}`);
+        }, 1500);
+        return;
+      }
+
+      // Use the correct API endpoint based on whether we're creating or updating
+      const endpoint = isExistingCampaign 
+        ? `/campaign-schedules/campaigns/${campaignId}` 
+        : '/plan-campaign/';
+      
+      const method = isExistingCampaign ? 'put' : 'post';
+      const response = await api[method](endpoint, payload);
+
+      if (response.status === 200 || response.status === 201) {
+        toast.success(`Campaign ${isExistingCampaign ? 'updated' : 'saved'} successfully!`, {
+          position: "bottom-right",
+          autoClose: 3000,
+          theme: "colored",
+        });
+        setTimeout(() => {
+          navigate('/saved-campaigns');
+        }, 1500);
+      } else {
+        throw new Error(`Failed to ${isExistingCampaign ? 'update' : 'save'} campaign`);
+      }
+    } catch (error) {
+      console.error('Error saving campaign:', error);
+      toast.error(
+        `Error saving campaign: ${error.response?.data?.detail || error.message}`,
+        {
+          position: "bottom-right",
+          autoClose: 5000,
+          theme: "colored",
+        }
+      );
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   const handleDownloadPDF = () => {
     const postCount = posts.length;
@@ -657,6 +381,7 @@ const handleSaveSchedule = async () => {
       : campaignData?.dates || [];
 
     let metadata = `📅 Campaign Schedule\n\n`;
+    metadata += `Campaign: ${campaignName}\n`;
     metadata += `Total Posts: ${postCount}\n`;
     if (dates.length) {
       metadata += `Post Dates:\n${dates.map((d, i) => `- Post ${i + 1}: ${d}`).join('\n')}\n`;
@@ -707,11 +432,9 @@ ${post.description}
   const generateShareLink = async () => {
     setIsSharing(true);
     try {
-      // In a real app, you would generate a shareable link from your backend
       const mockLink = `https://yourdomain.com/share/${campaignId || 'new'}`;
       setShareLink(mockLink);
 
-      // Copy to clipboard
       await navigator.clipboard.writeText(mockLink);
       toast.success('Share link copied to clipboard!', {
         position: "bottom-right",
@@ -747,6 +470,19 @@ ${post.description}
       });
     }
   };
+
+  if (!currentUser) {
+    return (
+      <div className="flex h-screen bg-gray-50">
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 mx-auto mb-4"></div>
+            <p className="text-gray-600">Checking authentication...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex bg-gradient-to-br from-gray-50 to-blue-50 min-h-screen font-[Inter]">
@@ -844,6 +580,12 @@ ${post.description}
                 <p className="text-gray-500 mt-2 max-w-md">
                   It looks like this campaign doesn't have any posts yet. Try creating a new campaign.
                 </p>
+                <button
+                  onClick={() => navigate('/create-campaign')}
+                  className="mt-4 bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-6 py-2 rounded-lg hover:shadow-md transition-all duration-200"
+                >
+                  Create New Campaign
+                </button>
               </div>
             ) : (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -861,11 +603,21 @@ ${post.description}
                           <span className="text-indigo-600 font-medium">{post.id}</span>
                         </div>
                         <div>
-                          <h2 className="text-lg font-semibold text-gray-800">
+                          <h2 
+                            data-field="title"
+                            contentEditable={post.isEditing}
+                            suppressContentEditableWarning={true}
+                            className={`text-lg font-semibold text-gray-800 ${post.isEditing ? 'bg-gray-50 px-2 py-1 rounded border' : ''}`}
+                          >
                             {post.title || 'Untitled Post'}
                           </h2>
                           <div className="flex items-center gap-2 mt-1">
-                            <span className="text-xs px-2 py-1 bg-gray-100 text-gray-600 rounded-full">
+                            <span 
+                              data-field="type"
+                              contentEditable={post.isEditing}
+                              suppressContentEditableWarning={true}
+                              className={`text-xs px-2 py-1 bg-gray-100 text-gray-600 rounded-full ${post.isEditing ? 'bg-gray-50 border' : ''}`}
+                            >
                               {post.type || 'No type specified'}
                             </span>
                             {post.isEditing && (

@@ -1,3 +1,4 @@
+// Frontend/src/pages/Dashboard.jsx - FIXED VERSION
 import React, { useState, useEffect } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import Sidebar from "../components/Sidebar";
@@ -15,7 +16,7 @@ import {
   FaSpinner
 } from "react-icons/fa";
 import { motion, AnimatePresence } from "framer-motion";
-import axios from "axios";
+import api from "../utils/api"; // Use configured API client
 
 const Dashboard = () => {
   const [linkedInAuthUrl, setLinkedInAuthUrl] = useState("");
@@ -30,41 +31,47 @@ const Dashboard = () => {
   const navigate = useNavigate();
   const location = useLocation();
 
- const fetchInitialData = async (retryCount = 0) => {
-  const maxRetries = 3;
-  try {
-    console.log("Fetching LinkedIn auth URL...");
-    // Get LinkedIn auth URL
-    const authUrlResponse = await axios.get("/api/linkedin/auth-url");
-    console.log("Auth URL response:", authUrlResponse.data);
+  const fetchInitialData = async (retryCount = 0) => {
+    const maxRetries = 3;
+    try {
+      console.log("Fetching LinkedIn auth URL...");
+      // Use configured API client
+      const authUrlResponse = await api.get("/linkedin/auth-url");
+      console.log("Auth URL response:", authUrlResponse.data);
 
-    if (!authUrlResponse.data.authUrl) {
-      throw new Error("No LinkedIn auth URL returned from server. Please check backend configuration.");
-    }
-    setLinkedInAuthUrl(authUrlResponse.data.authUrl);
-    setLinkedInState(authUrlResponse.data.state);
+      if (!authUrlResponse.data.authUrl) {
+        throw new Error("No LinkedIn auth URL returned from server. Please check backend configuration.");
+      }
+      setLinkedInAuthUrl(authUrlResponse.data.authUrl);
+      setLinkedInState(authUrlResponse.data.state);
 
-    // Get connected accounts
-    await fetchConnectedAccounts();
-  } catch (error) {
-    console.error("Error fetching data:", error);
-    console.error("Full error object:", error.response || error);
-    let errorMessage = error.response?.data?.detail || error.message;
-    if (error.response?.status === 500) {
-      errorMessage = "Server error while fetching LinkedIn auth URL. Please try again or contact support.";
+      // Get connected accounts
+      await fetchConnectedAccounts();
+    } catch (error) {
+      console.error("Error fetching data:", error);
+      console.error("Full error object:", error.response || error);
+      
+      let errorMessage = "Failed to load dashboard";
+      if (error.response?.status === 401) {
+        errorMessage = "Please log in to view dashboard";
+      } else if (error.response?.data?.detail) {
+        errorMessage = error.response.data.detail;
+      } else if (error.response?.status === 500) {
+        errorMessage = "Server error while fetching LinkedIn auth URL. Please try again or contact support.";
+      }
+      
+      if (retryCount < maxRetries) {
+        console.log(`Retrying fetchInitialData (attempt ${retryCount + 1})...`);
+        setTimeout(() => fetchInitialData(retryCount + 1), 1000);
+      } else {
+        setError(errorMessage);
+      }
+    } finally {
+      if (retryCount === 0) {
+        setLoading(false);
+      }
     }
-    if (retryCount < maxRetries) {
-      console.log(`Retrying fetchInitialData (attempt ${retryCount + 1})...`);
-      setTimeout(() => fetchInitialData(retryCount + 1), 1000);
-    } else {
-      setError(`Failed to load dashboard: ${errorMessage}`);
-    }
-  } finally {
-    if (retryCount === 0) {
-      setLoading(false);
-    }
-  }
-};
+  };
 
   const handleLinkedInConnect = (accountType = "personal") => {
     if (!linkedInAuthUrl) {
@@ -102,11 +109,17 @@ const Dashboard = () => {
 
   const fetchConnectedAccounts = async () => {
     try {
-      const response = await axios.get("/api/accounts?user_id=current_user_id");
+      // Use configured API client with proper endpoint
+      const response = await api.get("/accounts/");
       setConnectedAccounts(response.data?.accounts || []);
     } catch (error) {
       console.error("Error fetching connected accounts:", error);
-      setError("Failed to load connected accounts");
+      
+      if (error.response?.status === 401) {
+        setError("Please log in to view connected accounts");
+      } else {
+        setError("Failed to load connected accounts");
+      }
     }
   };
 
@@ -115,15 +128,22 @@ const Dashboard = () => {
 
     try {
       setDisconnecting(true);
-      await axios.delete(`/api/accounts/${accountId}`, {
-        data: { user_id: "current_user_id" }
-      });
+      // Use configured API client
+      await api.delete(`/accounts/${accountId}`);
+      
       setSuccessMessage("Account disconnected successfully");
       setTimeout(() => setSuccessMessage(""), 5000);
       await fetchConnectedAccounts();
     } catch (error) {
       console.error("Error disconnecting account:", error);
-      setError("Failed to disconnect account");
+      
+      if (error.response?.status === 401) {
+        setError("Please log in to disconnect accounts");
+      } else if (error.response?.status === 404) {
+        setError("Account not found or already disconnected");
+      } else {
+        setError("Failed to disconnect account");
+      }
     } finally {
       setDisconnecting(false);
     }
@@ -182,7 +202,10 @@ const Dashboard = () => {
               <motion.button
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
-                onClick={() => window.location.reload()}
+                onClick={() => {
+                  setError(null);
+                  fetchInitialData();
+                }}
                 className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-md flex items-center justify-center mx-auto"
               >
                 Retry

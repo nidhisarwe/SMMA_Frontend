@@ -1,7 +1,14 @@
+// Frontend/src/pages/DraftsPage.jsx - FIXED VERSION
 import React, { useState, useEffect } from "react";
 import axios from "axios";
+import api from "../utils/api"; // Use the configured API client
+import { auth } from "../firebase/config"; // Import Firebase auth
+import { useNavigate } from "react-router-dom";
 import { ToastContainer, toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
+import DatePicker from "react-datepicker";
+import "react-datepicker/dist/react-datepicker.css";
+import moment from "moment";
 import {
   FaImage,
   FaSpinner,
@@ -10,80 +17,318 @@ import {
   FaChevronLeft,
   FaChevronRight,
   FaCalendarAlt,
-  FaPaperPlane
+  FaPaperPlane,
+  FaClock,
+  FaTimes,
+  FaCheck
 } from "react-icons/fa";
 import { BsThreeDotsVertical } from "react-icons/bs";
 import Sidebar from "../components/Sidebar";
 import Navbar from "../components/Navbar";
+import { motion, AnimatePresence } from "framer-motion";
 
 const DraftsPage = () => {
+  const navigate = useNavigate();
   const [drafts, setDrafts] = useState([]);
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [activeSlideIndex, setActiveSlideIndex] = useState({});
+  const [selectedDraft, setSelectedDraft] = useState(null);
+  const [showScheduleModal, setShowScheduleModal] = useState(false);
+  const [scheduledDate, setScheduledDate] = useState(new Date());
+  const [scheduledTime, setScheduledTime] = useState(new Date());
+  const [isScheduling, setIsScheduling] = useState(false);
+  const [isPosting, setIsPosting] = useState(false);
+  const [connectedAccounts, setConnectedAccounts] = useState([]);
+  const [selectedPlatform, setSelectedPlatform] = useState("linkedin");
   const limit = 9;
 
   useEffect(() => {
-    const fetchDrafts = async () => {
-      setLoading(true);
+    // Check if user is authenticated first
+    const checkAuth = async () => {
       try {
-        const response = await axios.get(
-          `http://127.0.0.1:8000/api/get-drafts/?page=${page}&limit=${limit}`
-        );
-        if (response.data.status === "success") {
-          setDrafts(response.data.data);
-          setTotalPages(response.data.pages);
-
-          // Initialize slide indexes for all carousels
-          const indexes = {};
-          response.data.data.forEach(draft => {
-            if (draft.is_carousel && Array.isArray(draft.image_url)) {
-              indexes[draft._id] = 0;
-            }
+        // Check if we have a current user
+        const currentUser = await auth.currentUser;
+        if (!currentUser) {
+          toast.error("Please log in to view your drafts", {
+            position: "top-center",
+            autoClose: 3000,
           });
-          setActiveSlideIndex(indexes);
-        } else {
-          throw new Error(response.data.message || "Failed to fetch drafts");
+          return false;
         }
+        return true;
       } catch (error) {
-        console.error("Error fetching drafts:", error);
-        toast.error(error.message || "Failed to load drafts", {
+        console.error("Auth check error:", error);
+        toast.error("Authentication error. Please log in again.", {
           position: "top-center",
           autoClose: 3000,
         });
+        return false;
+      }
+    };
+    
+    const fetchDrafts = async () => {
+      setLoading(true);
+      
+      // First check authentication
+      const isAuthenticated = await checkAuth();
+      if (!isAuthenticated) {
+        setLoading(false);
+        return;
+      }
+      
+      try {
+        // Use axios directly with the full URL and auth token
+        const token = localStorage.getItem('token');
+        const response = await axios.get(`http://127.0.0.1:8000/api/get-drafts/?page=${page}&limit=${limit}`, {
+          headers: {
+            'Authorization': token ? `Bearer ${token}` : ''
+          }
+        });
+        
+        console.log("📋 Drafts API response:", response.data);
+        
+        // Handle different response structures
+        if (response.data.drafts) {
+          // New API structure
+          setDrafts(response.data.drafts);
+          setTotalPages(response.data.total_pages || 1);
+        } else if (response.data.status === "success") {
+          // Old API structure
+          setDrafts(response.data.data);
+          setTotalPages(response.data.pages || Math.ceil(response.data.total / limit) || 1);
+        } else if (Array.isArray(response.data)) {
+          // Direct array response
+          setDrafts(response.data);
+          setTotalPages(1);
+        } else {
+          setDrafts([]);
+          setTotalPages(1);
+        }
+
+        // Log the drafts for debugging
+        const draftList = response.data.drafts || response.data.data || response.data || [];
+        console.log("📝 Processed drafts:", draftList);
+        
+        if (draftList.length === 0) {
+          console.log("No drafts found for this user");
+        }
+        
+        // Initialize slide indexes for all carousels
+        const indexes = {};
+        draftList.forEach(draft => {
+          if (draft.is_carousel && Array.isArray(draft.image_url)) {
+            indexes[draft._id] = 0;
+          }
+        });
+        setActiveSlideIndex(indexes);
+        
+      } catch (error) {
+        console.error("Error fetching drafts:", error);
+        
+        if (error.response?.status === 401) {
+          toast.error("Please log in to view drafts", {
+            position: "top-center",
+            autoClose: 3000,
+          });
+        } else if (error.response?.status === 404) {
+          // No drafts found - this is OK
+          setDrafts([]);
+          setTotalPages(1);
+        } else {
+          toast.error("Failed to load drafts", {
+            position: "top-center",
+            autoClose: 3000,
+          });
+        }
       } finally {
         setLoading(false);
       }
     };
+    
     fetchDrafts();
   }, [page]);
 
   const handleDeleteDraft = async (draftId) => {
-    const toastId = toast.loading("Deleting draft...", {
-      position: "top-center",
-    });
+    const toastId = toast.loading("Deleting draft...");
+    
     try {
-      const response = await axios.delete(`http://127.0.0.1:8000/api/delete-draft/${draftId}`);
-      if (response.data.status === "success") {
-        setDrafts(drafts.filter((draft) => draft._id !== draftId));
-        toast.update(toastId, {
-          render: "Draft deleted successfully!",
-          type: "success",
-          isLoading: false,
-          autoClose: 3000,
-        });
-      } else {
-        throw new Error(response.data.message || "Failed to delete draft");
-      }
+      const token = localStorage.getItem('token');
+      await axios.delete(`http://127.0.0.1:8000/api/delete-draft/${draftId}`, {
+        headers: {
+          'Authorization': token ? `Bearer ${token}` : ''
+        }
+      });
+      
+      // Remove the draft from state
+      setDrafts(drafts.filter(draft => draft._id !== draftId));
+      
+      toast.update(toastId, {
+        render: "Draft deleted successfully",
+        type: "success",
+        isLoading: false,
+        autoClose: 3000,
+      });
     } catch (error) {
       console.error("Error deleting draft:", error);
+      
+      let errorMessage = "Failed to delete draft";
+      if (error.response?.status === 401) {
+        errorMessage = "Please log in to delete drafts";
+      } else if (error.response?.status === 404) {
+        errorMessage = "Draft not found";
+      }
+      
       toast.update(toastId, {
-        render: error.message || "Failed to delete draft",
+        render: errorMessage,
         type: "error",
         isLoading: false,
         autoClose: 3000,
       });
+    }
+  };
+
+  // Function to fetch connected social accounts
+  const fetchConnectedAccounts = async () => {
+    try {
+      const response = await axios.get("http://localhost:8000/api/linkedin/accounts", {
+        headers: {
+          Authorization: `Bearer ${await auth.currentUser.getIdToken()}`
+        }
+      });
+      
+      if (response.data && response.data.accounts) {
+        setConnectedAccounts(response.data.accounts);
+      }
+    } catch (error) {
+      console.error("Error fetching connected accounts:", error);
+      toast.error("Could not load connected social accounts");
+    }
+  };
+
+  // Function to handle scheduling a draft - opens the scheduling modal
+  const handleScheduleDraft = (draft) => {
+    setSelectedDraft(draft);
+    setSelectedPlatform(draft.platform || "linkedin");
+    setShowScheduleModal(true);
+    fetchConnectedAccounts();
+  };
+  
+  // Function to close the scheduling modal
+  const closeScheduleModal = () => {
+    setShowScheduleModal(false);
+    setSelectedDraft(null);
+    setScheduledDate(new Date());
+    setScheduledTime(new Date());
+  };
+  
+  // Function to schedule the post
+  const schedulePost = async () => {
+    if (!selectedDraft) return;
+    
+    setIsScheduling(true);
+    const toastId = toast.loading("Scheduling post...");
+    
+    try {
+      // Combine date and time
+      const scheduledDateTime = new Date(scheduledDate);
+      scheduledDateTime.setHours(
+        scheduledTime.getHours(),
+        scheduledTime.getMinutes(),
+        0
+      );
+      
+      // Format for API
+      const scheduledUTC = scheduledDateTime.toISOString();
+      
+      // Prepare post data
+      const postData = {
+        caption: selectedDraft.caption,
+        image_url: selectedDraft.image_url,
+        platform: selectedPlatform,
+        scheduled_time: scheduledUTC,
+        is_carousel: selectedDraft.is_carousel || false,
+        from_draft_id: selectedDraft._id // Include the draft ID for reference
+      };
+      
+      // Call the API to schedule the post
+      const response = await axios.post("http://localhost:8000/api/scheduled-posts", postData, {
+        headers: {
+          Authorization: `Bearer ${await auth.currentUser.getIdToken()}`
+        }
+      });
+      
+      toast.update(toastId, {
+        render: "Post scheduled successfully!",
+        type: "success",
+        isLoading: false,
+        autoClose: 3000
+      });
+      
+      // Close the modal
+      closeScheduleModal();
+      
+      // Navigate to calendar to see the scheduled post
+      navigate("/calendar");
+    } catch (error) {
+      console.error("Error scheduling post:", error);
+      
+      toast.update(toastId, {
+        render: error.response?.data?.detail || "Failed to schedule post",
+        type: "error",
+        isLoading: false,
+        autoClose: 5000
+      });
+    } finally {
+      setIsScheduling(false);
+    }
+  };
+  
+  // Function to post now
+  const postNow = async () => {
+    if (!selectedDraft) return;
+    
+    setIsPosting(true);
+    const toastId = toast.loading("Posting now...");
+    
+    try {
+      // Prepare post data
+      const postData = {
+        caption: selectedDraft.caption,
+        image_url: selectedDraft.image_url,
+        platform: selectedPlatform,
+        is_carousel: selectedDraft.is_carousel || false,
+        draft_id: selectedDraft._id // Include the draft ID for reference
+      };
+      
+      // Call the API to post now
+      const response = await axios.post("http://localhost:8000/api/post-now", postData, {
+        headers: {
+          Authorization: `Bearer ${await auth.currentUser.getIdToken()}`
+        }
+      });
+      
+      toast.update(toastId, {
+        render: "Post published successfully!",
+        type: "success",
+        isLoading: false,
+        autoClose: 3000
+      });
+      
+      // Close the modal
+      closeScheduleModal();
+    } catch (error) {
+      console.error("Error posting now:", error);
+      
+      toast.update(toastId, {
+        render: error.response?.data?.detail || "Failed to publish post",
+        type: "error",
+        isLoading: false,
+        autoClose: 5000
+      });
+    } finally {
+      setIsPosting(false);
     }
   };
 
@@ -108,80 +353,65 @@ const DraftsPage = () => {
     }));
   };
 
- const getImageUrl = (draft) => {
-  if (!draft.image_url) return null;
+  const getImageUrl = (draft) => {
+    if (!draft.image_url) return null;
 
-  // Handle case where image_url is a string
-  if (typeof draft.image_url === 'string') {
-    return draft.image_url;
-  }
-
-  // Handle case where image_url is an array
-  if (Array.isArray(draft.image_url)) {
-    if (draft.is_carousel) {
-      const currentIndex = activeSlideIndex[draft._id] || 0;
-      return draft.image_url[currentIndex] || draft.image_url[0];
+    // Handle case where image_url is a string
+    if (typeof draft.image_url === 'string') {
+      return draft.image_url;
     }
-    return draft.image_url[0]; // Return first image if not marked as carousel
-  }
 
-  return null;
-};
+    // Handle case where image_url is an array
+    if (Array.isArray(draft.image_url)) {
+      if (draft.is_carousel) {
+        const currentIndex = activeSlideIndex[draft._id] || 0;
+        return draft.image_url[currentIndex] || draft.image_url[0];
+      }
+      return draft.image_url[0]; // Return first image if not marked as carousel
+    }
 
-const isCarousel = (draft) => {
-  // Check if it's marked as carousel AND has multiple images
-  return draft.is_carousel &&
-         Array.isArray(draft.image_url) &&
-         draft.image_url.length > 1;
-};
+    return null;
+  };
+
+  const isCarousel = (draft) => {
+    // Check if it's marked as carousel AND has multiple images
+    return draft.is_carousel &&
+           Array.isArray(draft.image_url) &&
+           draft.image_url.length > 1;
+  };
 
   return (
     <div className="bg-gradient-to-br from-gray-50 to-gray-100 min-h-screen flex font-sans">
       <Sidebar />
       <div className="flex-1 flex flex-col overflow-hidden">
-        <Navbar />
-        <ToastContainer
-          position="top-center"
-          autoClose={3000}
-          hideProgressBar={false}
-          newestOnTop={false}
-          closeOnClick
-          rtl={false}
-          pauseOnFocusLoss
-          draggable
-          pauseOnHover
-          theme="light"
-          toastId="drafts-toast"
-        />
-        <main className="flex-1 overflow-y-auto">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-            <div className="flex justify-between items-center mb-8">
-              <div>
-                <h1 className="text-3xl font-bold text-gray-800">Your Drafts</h1>
-                <p className="text-gray-500 mt-1">Manage your saved posts</p>
-              </div>
-              <div className="flex items-center space-x-2">
-                <span className="text-sm text-gray-500">
-                  Page {page} of {totalPages}
-                </span>
-                <button
-                  onClick={() => setPage(prev => Math.max(1, prev - 1))}
-                  disabled={page === 1}
-                  className="p-2 rounded-full bg-white border border-gray-200 disabled:opacity-50 hover:bg-gray-50 transition"
-                >
-                  <FaChevronLeft className="text-gray-600" />
-                </button>
-                <button
-                  onClick={() => setPage(prev => Math.min(totalPages, prev + 1))}
-                  disabled={page === totalPages}
-                  className="p-2 rounded-full bg-white border border-gray-200 disabled:opacity-50 hover:bg-gray-50 transition"
-                >
-                  <FaChevronRight className="text-gray-600" />
-                </button>
-              </div>
+        <main className="flex-1 overflow-y-auto p-6">
+          <div className="flex justify-between items-center mb-6">
+            <div>
+              <h1 className="text-3xl font-bold text-gray-800">Your Drafts</h1>
+              <p className="text-gray-500 mt-1">Manage your saved posts</p>
             </div>
+            <div className="flex items-center space-x-2">
+              <span className="text-sm text-gray-500">
+                Page {page} of {totalPages}
+              </span>
+              <button
+                onClick={() => setPage(prev => Math.max(1, prev - 1))}
+                disabled={page === 1}
+                className="p-2 rounded-full bg-white border border-gray-200 disabled:opacity-50 hover:bg-gray-50 transition"
+              >
+                <FaChevronLeft className="text-gray-600" />
+              </button>
+              <button
+                onClick={() => setPage(prev => Math.min(totalPages, prev + 1))}
+                disabled={page === totalPages}
+                className="p-2 rounded-full bg-white border border-gray-200 disabled:opacity-50 hover:bg-gray-50 transition"
+              >
+                <FaChevronRight className="text-gray-600" />
+              </button>
+            </div>
+          </div>
 
-            {loading ? (
+          {loading ? (
               <div className="flex justify-center items-center h-64">
                 <FaSpinner className="animate-spin text-4xl text-blue-600" />
               </div>
@@ -197,7 +427,7 @@ const isCarousel = (draft) => {
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                 {drafts.map((draft) => {
                   const currentImage = getImageUrl(draft);
-                  const isCarousel = draft.is_carousel && Array.isArray(draft.image_url) && draft.image_url.length > 1;
+                  const isCarouselPost = isCarousel(draft);
                   const currentIndex = activeSlideIndex[draft._id] || 0;
 
                   return (
@@ -217,7 +447,7 @@ const isCarousel = (draft) => {
                                 e.target.src = "https://via.placeholder.com/300x200?text=Image+Not+Found";
                               }}
                             />
-                            {isCarousel && (
+                            {isCarouselPost && (
                               <>
                                 <button
                                   onClick={(e) => {
@@ -266,7 +496,7 @@ const isCarousel = (draft) => {
                             <span className="inline-block px-2 py-1 text-xs font-medium rounded-full bg-blue-100 text-blue-800 mb-2 capitalize">
                               {draft.platform}
                             </span>
-                            {isCarousel && (
+                            {isCarouselPost && (
                               <span className="inline-block ml-2 px-2 py-1 text-xs font-medium rounded-full bg-purple-100 text-purple-800">
                                 {draft.image_url.length} images
                               </span>
@@ -303,12 +533,7 @@ const isCarousel = (draft) => {
                               <FaPaperPlane className="text-xs" />
                             </button>
                             <button
-                              onClick={() => {
-                                toast.info("Scheduling functionality coming soon!", {
-                                  position: "top-center",
-                                  autoClose: 2000,
-                                });
-                              }}
+                              onClick={() => handleScheduleDraft(draft)}
                               className="p-1.5 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-600 transition"
                               title="Schedule"
                             >
@@ -329,11 +554,10 @@ const isCarousel = (draft) => {
                 })}
               </div>
             )}
-          </div>
-        </main>
+          </main>
+        </div>
       </div>
-    </div>
-  );
-};
+    );
+  };
 
 export default DraftsPage;

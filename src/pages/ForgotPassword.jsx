@@ -1,18 +1,20 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import axios from "axios";
 import { motion } from "framer-motion";
 import { ToastContainer, toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import { FiMail, FiLoader, FiArrowLeft } from "react-icons/fi";
+import { useAuth } from "../contexts/AuthContext";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api/auth";
+// Firebase auth is used instead of API calls
 
 const ForgotPassword = () => {
   const [email, setEmail] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [shake, setShake] = useState(false);
+  const [resetSent, setResetSent] = useState(false);
   const navigate = useNavigate();
+  const { resetPassword } = useAuth();
 
   const containerVariants = {
     hidden: { opacity: 0 },
@@ -55,11 +57,18 @@ const ForgotPassword = () => {
     }
 
     try {
-      const response = await axios.post(`${API_BASE_URL}/forgot-password`, { email });
-      toast.success(response.data.message || "Check your email for a reset link.");
-      setEmail("");
-    } catch (err) {
-      toast.error(err.response?.data?.detail || "Failed to send reset link. Please try again.");
+      await resetPassword(email);
+      toast.success("Password reset email sent. Check your inbox.");
+      setResetSent(true);
+    } catch (error) {
+      console.error("Password reset error:", error);
+      if (error.code === "auth/user-not-found") {
+        toast.error("No account exists with this email address.");
+      } else if (error.code === "auth/invalid-email") {
+        toast.error("Please enter a valid email address.");
+      } else {
+        toast.error("Failed to send reset link. Please try again.");
+      }
       triggerShake();
     }
     setIsLoading(false);
@@ -97,9 +106,15 @@ const ForgotPassword = () => {
           >
             <div className="text-center mb-8">
               <h2 className="text-2xl font-bold text-gray-800">Reset Your Password</h2>
-              <p className="text-gray-500 mt-2">
-                Enter your email to receive a password reset link.
-              </p>
+              {resetSent ? (
+                <p className="text-green-600 mt-2">
+                  Reset link sent! Check your email inbox and follow the instructions.
+                </p>
+              ) : (
+                <p className="text-gray-500 mt-2">
+                  Enter your email to receive a password reset link.
+                </p>
+              )}
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-4">

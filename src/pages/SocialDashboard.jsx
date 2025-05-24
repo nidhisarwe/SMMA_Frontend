@@ -1,3 +1,4 @@
+// SocialDashboard.jsx - Complete LinkedIn connection flow
 import React, { useState, useEffect } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import Sidebar from "../components/Sidebar";
@@ -15,7 +16,8 @@ import {
   FaSpinner,
 } from "react-icons/fa";
 import { motion, AnimatePresence } from "framer-motion";
-import axios from "axios";
+import { useAuth } from "../contexts/AuthContext";
+import api from "../utils/api";
 
 const SocialDashboard = () => {
   const [linkedInAuthUrl, setLinkedInAuthUrl] = useState("");
@@ -28,8 +30,10 @@ const SocialDashboard = () => {
   const [disconnecting, setDisconnecting] = useState(null);
   const [linkedInState, setLinkedInState] = useState("");
   const [greeting, setGreeting] = useState("Good Day");
+  
   const navigate = useNavigate();
   const location = useLocation();
+  const { currentUser, loading: authLoading } = useAuth();
 
   // Dynamic greeting based on time of day
   useEffect(() => {
@@ -44,34 +48,87 @@ const SocialDashboard = () => {
       }
     };
     updateGreeting();
-    // Update greeting every minute to handle edge cases (e.g., crossing midnight)
     const interval = setInterval(updateGreeting, 60000);
     return () => clearInterval(interval);
   }, []);
 
+  // Redirect if not authenticated
+  useEffect(() => {
+    if (!authLoading && !currentUser) {
+      navigate('/auth');
+      return;
+    }
+  }, [currentUser, authLoading, navigate]);
+
+  const fetchConnectedAccounts = async () => {
+    try {
+      if (!currentUser) {
+        console.log("No current user, cannot fetch accounts");
+        return;
+      }
+
+      console.log("🔄 Fetching connected accounts for authenticated user...");
+      
+      const response = await api.get("/linkedin/accounts");
+      
+      console.log("✅ Connected accounts response:", response.data);
+      setConnectedAccounts(response.data?.accounts || []);
+      
+      console.log(`📊 Found ${response.data?.accounts?.length || 0} connected accounts for current user`);
+      
+    } catch (error) {
+      console.error("❌ Error fetching connected accounts:", error);
+      if (error.response?.status === 401) {
+        setError("Authentication issue. Please refresh the page.");
+        setTimeout(() => setError(null), 5000);
+      } else if (error.response?.status === 403) {
+        setError("Access denied. Please ensure you're logged in with the correct account.");
+      } else {
+        setError("Failed to load connected accounts");
+        console.error("Connected accounts error details:", error.response?.data);
+      }
+    }
+  };
+
   const fetchInitialData = async (retryCount = 0) => {
     const maxRetries = 3;
     try {
-      console.log("Fetching LinkedIn auth URL...");
-      const authUrlResponse = await axios.get("/api/linkedin/auth-url");
-      console.log("Auth URL response:", authUrlResponse.data);
+      if (!currentUser) {
+        console.log("No current user, cannot fetch initial data");
+        setLoading(false);
+        return;
+      }
+
+      console.log("🔄 Fetching LinkedIn auth URL...");
+      
+      const currentPage = window.location.href;
+      console.log("Current page for return_to:", currentPage);
+      
+      const authUrlResponse = await api.get(`/linkedin/auth-url?return_to=${encodeURIComponent(currentPage)}`);
+      
+      console.log("✅ Auth URL response:", authUrlResponse.data);
 
       if (!authUrlResponse.data.authUrl) {
         throw new Error("No LinkedIn auth URL returned from server. Please check backend configuration.");
       }
+      
       setLinkedInAuthUrl(authUrlResponse.data.authUrl);
       setLinkedInState(authUrlResponse.data.state);
+      console.log("LinkedIn auth URL set:", authUrlResponse.data.authUrl);
+      console.log("LinkedIn state set:", authUrlResponse.data.state);
 
       await fetchConnectedAccounts();
     } catch (error) {
-      console.error("Error fetching data:", error);
-      console.error("Full error object:", error.response || error);
+      console.error("❌ Error fetching data:", error);
       let errorMessage = error.response?.data?.detail || error.message;
       if (error.response?.status === 500) {
         errorMessage = "Server error while fetching LinkedIn auth URL. Please try again or contact support.";
+      } else if (error.response?.status === 401) {
+        errorMessage = "Authentication error. Please refresh the page or log in again.";
       }
+      
       if (retryCount < maxRetries) {
-        console.log(`Retrying fetchInitialData (attempt ${retryCount + 1})...`);
+        console.log(`🔄 Retrying fetchInitialData (attempt ${retryCount + 1})...`);
         setTimeout(() => fetchInitialData(retryCount + 1), 1000);
       } else {
         setError(`Failed to load dashboard: ${errorMessage}`);
@@ -83,71 +140,90 @@ const SocialDashboard = () => {
     }
   };
 
-  const handleLinkedInConnect = (accountType = "personal") => {
+  const handleLinkedInConnect = async (accountType = "personal") => {
+    console.log("Starting LinkedIn connection process...");
+    setError(null);
+    
     if (!linkedInAuthUrl) {
+      console.error("LinkedIn auth URL is missing");
       setError("LinkedIn authentication URL is not available. Please refresh the page or try again later.");
       return;
     }
+    
+    if (!currentUser) {
+      console.error("No current user found when trying to connect LinkedIn");
+      setError("Please log in first before connecting LinkedIn account.");
+      sessionStorage.setItem('redirectAfterLogin', window.location.pathname);
+      navigate('/auth');
+      return;
+    }
+    
     try {
       const url = new URL(linkedInAuthUrl);
       url.searchParams.set("account_type", accountType);
       url.searchParams.set("state", linkedInState);
+      
+      sessionStorage.setItem('linkedInReturnUrl', window.location.href);
+      
+      console.log("🔗 Redirecting to LinkedIn auth:", url.toString());
       window.location.href = url.toString();
     } catch (err) {
-      console.error("Error constructing LinkedIn auth URL:", err);
+      console.error("❌ Error in LinkedIn connection process:", err);
       setError("Failed to initiate LinkedIn connection. Please try again.");
     }
   };
 
-  useEffect(() => {
-    const query = new URLSearchParams(location.search);
-    if (query.get("linkedin_connected") === "true") {
-      setSuccessMessage("LinkedIn account connected successfully!");
-      setTimeout(() => setSuccessMessage(""), 5000);
-      window.history.replaceState({}, document.title, window.location.pathname);
-    }
-
-    if (query.get("linkedin_error")) {
-      setError(`LinkedIn connection failed: ${query.get("linkedin_error")}`);
-      setTimeout(() => setError(null), 5000);
-      window.history.replaceState({}, document.title, window.location.pathname);
-    }
-
-    fetchInitialData();
-  }, [location]);
-
-  const fetchConnectedAccounts = async () => {
-    try {
-      const response = await axios.get("/api/accounts?user_id=current_user_id");
-      setConnectedAccounts(response.data?.accounts || []);
-    } catch (error) {
-      console.error("Error fetching connected accounts:", error);
-      setError("Failed to load connected accounts");
-    }
+  const handleAccountTypeSelect = (accountType) => {
+    console.log(`Selected account type: ${accountType}`);
+    setSelectedAccountType(accountType);
+    setShowAccountTypeSelector(false);
+    handleLinkedInConnect(accountType);
   };
 
   const handleDisconnect = async (accountId) => {
     if (disconnecting) return;
 
     try {
-      setDisconnecting(true);
-      await axios.delete(`/api/accounts/${accountId}`, {
-        data: { user_id: "current_user_id" },
-      });
-      setSuccessMessage("Account disconnected successfully");
+      setDisconnecting(accountId);
+      console.log(`🔄 Disconnecting account ${accountId} for authenticated user...`);
+      
+      await api.delete(`/linkedin/accounts/${accountId}`);
+      
+      console.log("✅ Account disconnected successfully");
+      setSuccessMessage("LinkedIn account disconnected successfully");
       setTimeout(() => setSuccessMessage(""), 5000);
+      
       await fetchConnectedAccounts();
+      
     } catch (error) {
-      console.error("Error disconnecting account:", error);
-      setError("Failed to disconnect account");
+      console.error("❌ Error disconnecting account:", error);
+      if (error.response?.status === 401) {
+        setError("Authentication issue. Please refresh the page.");
+        setTimeout(() => setError(null), 5000);
+      } else if (error.response?.status === 403) {
+        setError("You don't have permission to disconnect this account.");
+      } else if (error.response?.status === 404) {
+        setError("Account not found or already disconnected.");
+      } else {
+        setError("Failed to disconnect account");
+      }
     } finally {
-      setDisconnecting(false);
+      setDisconnecting(null);
     }
   };
 
   const handleConnect = (platform) => {
+    if (!currentUser) {
+      setError("Please log in first before connecting social accounts.");
+      navigate('/auth');
+      return;
+    }
+    
+    setError(null);
+    
     switch (platform) {
       case "linkedin":
+        console.log("Opening LinkedIn account type selector");
         setShowAccountTypeSelector(true);
         break;
       case "facebook":
@@ -160,6 +236,165 @@ const SocialDashboard = () => {
         break;
     }
   };
+
+  useEffect(() => {
+    const handleLinkedInCallback = async () => {
+      const query = new URLSearchParams(location.search);
+      const linkedinConnected = query.get('linkedin_connected');
+      const state = query.get('state');
+      const code = query.get('code');
+      const linkedinError = query.get('linkedin_error');
+
+      console.log("LinkedIn callback detected with params:", {
+        linkedinConnected,
+        state: state ? "[state present]" : "[no state]",
+        code: code ? "[code present]" : "[no code]",
+        linkedinError: linkedinError || "[no error]"
+      });
+
+      // Clear URL parameters to prevent issues on refresh
+      const cleanupUrl = () => {
+        window.history.replaceState({}, document.title, window.location.pathname);
+      };
+
+      if (linkedinError) {
+        const errorMsg = decodeURIComponent(linkedinError);
+        console.error(`LinkedIn connection error: ${errorMsg}`);
+        setError(`LinkedIn connection failed: ${errorMsg}`);
+        setTimeout(() => setError(null), 5000);
+        cleanupUrl();
+        return;
+      }
+      
+      // If we have code and state but no user, save them and redirect to auth
+      if ((code && state) && !currentUser) {
+        console.log("LinkedIn OAuth callback detected but user not logged in");
+        sessionStorage.setItem('pendingLinkedInCode', code);
+        sessionStorage.setItem('pendingLinkedInState', state);
+        sessionStorage.setItem('redirectAfterLogin', window.location.pathname);
+        navigate('/auth');
+        return;
+      }
+      
+      // If we have code and state and user is logged in, process the callback
+      if (code && state && currentUser) {
+        console.log("Direct LinkedIn OAuth callback detected with code and state");
+        try {
+          const response = await api.post('/linkedin/callback', { code, state });
+          console.log("LinkedIn OAuth callback processed successfully:", response.data);
+          
+          // Now complete the connection with the state
+          const completeResponse = await api.post('/linkedin/complete-connection', { state });
+          console.log("LinkedIn connection completed:", completeResponse.data);
+          
+          setSuccessMessage("LinkedIn account connected successfully!");
+          setTimeout(() => setSuccessMessage(""), 5000);
+          
+          await fetchConnectedAccounts();
+          
+          cleanupUrl();
+          return;
+        } catch (error) {
+          console.error("Error processing LinkedIn OAuth callback:", error);
+          setError(`Failed to complete LinkedIn connection: ${error.response?.data?.detail || error.message}`);
+          setTimeout(() => setError(null), 5000);
+          cleanupUrl();
+          return;
+        }
+      }
+      
+      // Handle the case where we've been redirected back with linkedin_connected=true
+      if (linkedinConnected === 'true' && state) {
+        if (!currentUser) {
+          console.log("LinkedIn connected but no current user - storing state for after login");
+          sessionStorage.setItem('pendingLinkedInState', state);
+          sessionStorage.setItem('redirectAfterLogin', window.location.pathname);
+          navigate('/auth');
+          return;
+        }
+
+        try {
+          console.log("Completing LinkedIn connection...");
+          const response = await api.post('/linkedin/complete-connection', { state });
+          
+          if (response.data.success) {
+            setSuccessMessage(`LinkedIn account connected successfully! Welcome ${response.data.account?.name || 'User'}!`);
+            setTimeout(() => setSuccessMessage(""), 5000);
+            
+            await fetchConnectedAccounts();
+            
+            console.log("✅ LinkedIn connection completed successfully");
+          }
+        } catch (error) {
+          console.error('❌ Error completing LinkedIn connection:', error);
+          let errorMessage = 'Failed to complete LinkedIn connection';
+          
+          if (error.response?.status === 409) {
+            errorMessage = 'This LinkedIn account is already connected to another user.';
+          } else if (error.response?.status === 404) {
+            errorMessage = 'LinkedIn connection expired. Please try connecting again.';
+          } else if (error.response?.data?.detail) {
+            errorMessage = error.response.data.detail;
+          }
+          
+          setError(errorMessage);
+        }
+        
+        cleanupUrl();
+      }
+    };
+
+    // Process LinkedIn callback if we have search params and either the user is logged in or we have a code parameter
+    if (location.search && (currentUser || location.search.includes('code='))) {
+      handleLinkedInCallback();
+    }
+  }, [location.search, currentUser, navigate]);
+
+  useEffect(() => {
+    const query = new URLSearchParams(location.search);
+    if (query.get("linkedin_connected") === "true") {
+      setSuccessMessage("LinkedIn account connected successfully!");
+      setTimeout(() => setSuccessMessage(""), 5000);
+      window.history.replaceState({}, document.title, window.location.pathname);
+      fetchConnectedAccounts();
+    }
+
+    if (query.get("linkedin_error")) {
+      const errorMsg = query.get("linkedin_error");
+      setError(`LinkedIn connection failed: ${errorMsg}`);
+      setTimeout(() => setError(null), 5000);
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+
+    if (currentUser && !authLoading) {
+      fetchInitialData();
+    } else if (!authLoading) {
+      setLoading(false);
+    }
+  }, [location, currentUser, authLoading]);
+
+  if (authLoading) {
+    return (
+      <div className="flex h-screen bg-gray-50">
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center">
+            <motion.div
+              animate={{ rotate: 360 }}
+              transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+              className="rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 mx-auto mb-4"
+            >
+              <FaSpinner className="text-blue-500 text-xl" />
+            </motion.div>
+            <p className="text-gray-600">Authenticating...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!currentUser) {
+    return null;
+  }
 
   if (loading) {
     return (
@@ -176,7 +411,7 @@ const SocialDashboard = () => {
               >
                 <FaSpinner className="text-blue-500 text-xl" />
               </motion.div>
-              <p className="text-gray-600">Loading your dashboard...</p>
+              <p className="text-gray-600">Loading your personal dashboard...</p>
             </div>
           </main>
         </div>
@@ -198,7 +433,10 @@ const SocialDashboard = () => {
               <motion.button
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
-                onClick={() => window.location.reload()}
+                onClick={() => {
+                  setError(null);
+                  fetchInitialData();
+                }}
                 className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-md flex items-center justify-center mx-auto"
               >
                 Retry
@@ -242,70 +480,64 @@ const SocialDashboard = () => {
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0 }}
-                  className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+                  className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4"
                 >
                   <motion.div
                     initial={{ scale: 0.9, opacity: 0 }}
                     animate={{ scale: 1, opacity: 1 }}
                     exit={{ scale: 0.9, opacity: 0 }}
-                    className="bg-white p-6 rounded-lg max-w-md w-full mx-4"
+                    className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md"
                   >
-                    <div className="flex justify-between items-center mb-4">
-                      <h3 className="text-lg font-medium">Connect LinkedIn Account</h3>
+                    <h3 className="text-xl font-bold mb-4 text-gray-800">Select LinkedIn Account Type</h3>
+                    <p className="text-gray-600 mb-6">Choose the type of LinkedIn account you want to connect:</p>
+                    
+                    <div className="space-y-4">
                       <button
-                        onClick={() => setShowAccountTypeSelector(false)}
-                        className="text-gray-500 hover:text-gray-700"
+                        onClick={() => handleAccountTypeSelect("personal")}
+                        className="w-full p-4 bg-white border border-gray-300 rounded-lg flex items-center hover:bg-gray-50 transition-colors"
                       >
-                        <FaTimes />
+                        <div className="bg-blue-100 p-3 rounded-full mr-4">
+                          <FaLinkedin className="text-blue-600 text-xl" />
+                        </div>
+                        <div className="text-left">
+                          <h4 className="font-medium text-gray-800">Personal Account</h4>
+                          <p className="text-sm text-gray-500">Connect your individual LinkedIn profile</p>
+                        </div>
+                      </button>
+                      
+                      <button
+                        onClick={() => handleAccountTypeSelect("company")}
+                        className="w-full p-4 bg-white border border-gray-300 rounded-lg flex items-center hover:bg-gray-50 transition-colors"
+                      >
+                        <div className="bg-blue-100 p-3 rounded-full mr-4">
+                          <FaLinkedin className="text-blue-600 text-xl" />
+                        </div>
+                        <div className="text-left">
+                          <h4 className="font-medium text-gray-800">Company Page</h4>
+                          <p className="text-sm text-gray-500">Connect a LinkedIn company page you manage</p>
+                        </div>
                       </button>
                     </div>
-                    <p className="mb-4 text-gray-600">Select which type of LinkedIn account you want to connect:</p>
-                    <div className="space-y-3 mb-6">
-                      <motion.button
-                        whileHover={{ scale: 1.02 }}
-                        whileTap={{ scale: 0.98 }}
-                        onClick={() => {
-                          setSelectedAccountType("personal");
-                          handleLinkedInConnect("personal");
-                          setShowAccountTypeSelector(false);
-                        }}
-                        className={`w-full px-4 py-3 rounded-lg flex items-center ${
-                          selectedAccountType === "personal" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-800"
-                        }`}
+                    
+                    <div className="mt-6 flex justify-end">
+                      <button
+                        onClick={() => setShowAccountTypeSelector(false)}
+                        className="px-4 py-2 text-gray-600 hover:text-gray-800 transition-colors"
                       >
-                        <FaLinkedin className="mr-3" />
-                        Personal Profile
-                      </motion.button>
-                      <motion.button
-                        whileHover={{ scale: 1.02 }}
-                        whileTap={{ scale: 0.98 }}
-                        onClick={() => {
-                          setSelectedAccountType("company");
-                          handleLinkedInConnect("company");
-                          setShowAccountTypeSelector(false);
-                        }}
-                        className={`w-full px-4 py-3 rounded-lg flex items-center ${
-                          selectedAccountType === "company" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-800"
-                        }`}
-                      >
-                        <FaLinkedin className="mr-3" />
-                        Company Page
-                      </motion.button>
+                        Cancel
+                      </button>
                     </div>
-                    <p className="text-xs text-gray-500">
-                      You'll be redirected to LinkedIn to authorize access to your account.
-                    </p>
                   </motion.div>
                 </motion.div>
               )}
             </AnimatePresence>
 
             <header className="mb-8">
-              <h1 className="text-3xl font-bold text-gray-900">
-                {greeting} <span className="ml-1">👋</span>
+              <h1 className="text-3xl font-bold text-gray-900 mb-2">
+                {greeting}, {currentUser?.displayName || 'User'}!
               </h1>
-              <p className="text-gray-600 mt-2">
-                Manage your social media presence with ease
+              <p className="text-gray-600">
+                Manage your personal social media presence with ease
               </p>
             </header>
 
@@ -343,6 +575,7 @@ const SocialDashboard = () => {
                       <div className="flex-1">
                         <h3 className="font-medium text-gray-900">{account.name}</h3>
                         <p className="text-sm text-gray-500 capitalize">{account.platform}</p>
+                        <p className="text-xs text-gray-400">Connected to your account</p>
                       </div>
                       <div className="flex items-center">
                         <span className="text-green-500 mr-3">
@@ -352,9 +585,9 @@ const SocialDashboard = () => {
                           onClick={() => handleDisconnect(account._id || account.account_id)}
                           className="text-gray-400 hover:text-red-500 transition-colors"
                           title="Disconnect"
-                          disabled={disconnecting}
+                          disabled={disconnecting === account._id}
                         >
-                          {disconnecting ? <FaSpinner className="animate-spin" /> : <FaTimes />}
+                          {disconnecting === account._id ? <FaSpinner className="animate-spin" /> : <FaTimes />}
                         </button>
                       </div>
                     </motion.div>
@@ -365,7 +598,7 @@ const SocialDashboard = () => {
                   <div className="bg-gray-100 rounded-full w-16 h-16 flex items-center justify-center mx-auto mb-4">
                     <FaLinkedin className="text-gray-400 text-2xl" />
                   </div>
-                  <p className="text-gray-500 mb-4">No accounts connected yet</p>
+                  <p className="text-gray-500 mb-4">No accounts connected to your profile yet</p>
                   <motion.button
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
@@ -382,7 +615,7 @@ const SocialDashboard = () => {
               <div className="text-center mb-8">
                 <h2 className="text-2xl font-semibold text-gray-900 mb-2">Connect Your Social Accounts</h2>
                 <p className="text-gray-600 max-w-2xl mx-auto">
-                  Link your social media accounts to unlock powerful scheduling and analytics features.
+                  Link your social media accounts to your personal profile for powerful scheduling and analytics.
                 </p>
               </div>
 

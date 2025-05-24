@@ -1,27 +1,44 @@
 import { useState, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import axios from "axios";
 import { motion } from "framer-motion";
 import { ToastContainer, toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
-import { FiLock, FiLoader, FiArrowLeft } from "react-icons/fi";
+import { FiLock, FiEye, FiEyeOff, FiLoader, FiArrowLeft } from "react-icons/fi";
+import { useAuth } from "../contexts/AuthContext";
+import { auth } from "../firebase/config";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api/auth";
+// Firebase auth is used instead of API calls
 
 const ResetPassword = () => {
   const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [shake, setShake] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const token = searchParams.get("token");
+  const oobCode = searchParams.get("oobCode"); // Firebase uses oobCode for reset tokens
 
   useEffect(() => {
-    if (!token) {
-      toast.error("Invalid or missing reset token.");
+    if (!oobCode) {
+      toast.error("Invalid or missing reset code.");
       setTimeout(() => navigate("/auth"), 3000);
+      return;
     }
-  }, [token, navigate]);
+    
+    // Verify the action code is valid
+    const verifyCode = async () => {
+      try {
+        await auth.verifyPasswordResetCode(oobCode);
+      } catch (error) {
+        console.error("Invalid reset code:", error);
+        toast.error("This password reset link is invalid or has expired.");
+        setTimeout(() => navigate("/auth"), 3000);
+      }
+    };
+    
+    verifyCode();
+  }, [oobCode, navigate]);
 
   const containerVariants = {
     hidden: { opacity: 0 },
@@ -69,17 +86,32 @@ const ResetPassword = () => {
       setIsLoading(false);
       return;
     }
+    
+    if (newPassword !== confirmPassword) {
+      toast.error("Passwords do not match.");
+      triggerShake();
+      setIsLoading(false);
+      return;
+    }
 
     try {
-      const response = await axios.post(`${API_BASE_URL}/reset-password`, {
-        token,
-        new_password: newPassword,
-      });
-      toast.success(response.data.message || "Password reset successfully!");
+      // Confirm the password reset with Firebase
+      await auth.confirmPasswordReset(oobCode, newPassword);
+      toast.success("Password has been reset successfully!");
       setNewPassword("");
+      setConfirmPassword("");
       setTimeout(() => navigate("/auth"), 2000);
-    } catch (err) {
-      toast.error(err.response?.data?.detail || "Failed to reset password. Please try again.");
+    } catch (error) {
+      console.error("Password reset error:", error);
+      if (error.code === "auth/weak-password") {
+        toast.error("Password is too weak. Please use a stronger password.");
+      } else if (error.code === "auth/expired-action-code") {
+        toast.error("This password reset link has expired. Please request a new one.");
+      } else if (error.code === "auth/invalid-action-code") {
+        toast.error("This password reset link is invalid. Please request a new one.");
+      } else {
+        toast.error("Failed to reset password. Please try again.");
+      }
       triggerShake();
     }
     setIsLoading(false);
@@ -125,13 +157,13 @@ const ResetPassword = () => {
             <form onSubmit={handleSubmit} className="space-y-4">
               <motion.div variants={itemVariants}>
                 <div className="relative">
-                  <div className="absolute inset-y-0 left-0 plak-3 flex items-center pointer-events-none">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                     <FiLock className="h-5 w-5 text-gray-400" />
                   </div>
                   <input
                     id="newPassword"
                     name="newPassword"
-                    type="password"
+                    type={showPassword ? "text" : "password"}
                     autoComplete="new-password"
                     required
                     value={newPassword}
@@ -139,14 +171,44 @@ const ResetPassword = () => {
                     className="pl-10 w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition duration-200"
                     placeholder="New Password"
                   />
+                  <button
+                    type="button"
+                    className="absolute inset-y-0 right-0 pr-3 flex items-center"
+                    onClick={() => setShowPassword(!showPassword)}
+                  >
+                    {showPassword ? (
+                      <FiEyeOff className="h-5 w-5 text-gray-400" />
+                    ) : (
+                      <FiEye className="h-5 w-5 text-gray-400" />
+                    )}
+                  </button>
+                </div>
+              </motion.div>
+              
+              <motion.div variants={itemVariants}>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <FiLock className="h-5 w-5 text-gray-400" />
+                  </div>
+                  <input
+                    id="confirmPassword"
+                    name="confirmPassword"
+                    type={showPassword ? "text" : "password"}
+                    autoComplete="new-password"
+                    required
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    className="pl-10 w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition duration-200"
+                    placeholder="Confirm Password"
+                  />
                 </div>
               </motion.div>
 
               <motion.div variants={itemVariants}>
                 <button
                   type="submit"
-                  disabled={isLoading || !token}
-                  className={`w-full flex justify-center items-center py-3 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition duration-200 ${isLoading || !token ? "opacity-75 cursor-not-allowed" : ""}`}
+                  disabled={isLoading || !oobCode}
+                  className={`w-full flex justify-center items-center py-3 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition duration-200 ${isLoading || !oobCode ? "opacity-75 cursor-not-allowed" : ""}`}
                 >
                   {isLoading ? (
                     <>

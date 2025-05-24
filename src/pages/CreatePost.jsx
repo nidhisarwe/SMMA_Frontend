@@ -1,3 +1,6 @@
+import { api } from '../utils/api';
+//import api from "../utils/api";
+import { auth } from "../firebase/config";
 import React, { useState, useEffect } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
@@ -66,43 +69,60 @@ const CreatePost = () => {
   const [activeCarouselIndex, setActiveCarouselIndex] = useState(0);
   const navigate = useNavigate();
 
+  // Custom arrow components to prevent React warnings about DOM props
+  const PrevArrow = (props) => {
+    const { onClick } = props;
+    return (
+      <button 
+        className="absolute left-0 top-1/2 transform -translate-y-1/2 bg-white/80 p-3 rounded-full shadow-md z-10 hover:bg-white"
+        onClick={onClick}
+      >
+        <FaArrowLeft className="text-gray-600" />
+      </button>
+    );
+  };
+
+  const NextArrow = (props) => {
+    const { onClick } = props;
+    return (
+      <button 
+        className="absolute right-0 top-1/2 transform -translate-y-1/2 bg-white/80 p-3 rounded-full shadow-md z-10 hover:bg-white"
+        onClick={onClick}
+      >
+        <FaArrowRight className="text-gray-600" />
+      </button>
+    );
+  };
+
   // Carousel settings for editor
-const editorCarouselSettings = {
-  dots: false, // Remove default dots
-  infinite: false,
-  speed: 300,
-  slidesToShow: 1,
-  slidesToScroll: 1,
-  arrows: true,
-  prevArrow: (
-    <button className="absolute left-0 top-1/2 transform -translate-y-1/2 bg-white/80 p-3 rounded-full shadow-md z-10 hover:bg-white">
-      <FaArrowLeft className="text-gray-600" />
-    </button>
-  ),
-  nextArrow: (
-    <button className="absolute right-0 top-1/2 transform -translate-y-1/2 bg-white/80 p-3 rounded-full shadow-md z-10 hover:bg-white">
-      <FaArrowRight className="text-gray-600" />
-    </button>
-  ),
-  afterChange: (current) => setActiveCarouselIndex(current),
-  appendDots: (dots) => (
-    <div className="bg-white/80 rounded-lg p-2 mt-2">
-      <ul className="m-0 p-0 flex justify-center space-x-2">
-        {carouselItems.map((_, i) => (
-          <li
-            key={i}
-            className={`px-3 py-1 rounded-full text-sm font-medium cursor-pointer ${
-              i === activeCarouselIndex ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-600'
-            }`}
-            onClick={() => document.querySelector('.carousel-editor').slickGoTo(i)}
-          >
-            {i + 1}
-          </li>
-        ))}
-      </ul>
-    </div>
-  ),
-};
+  const editorCarouselSettings = {
+    dots: false,
+    infinite: false,
+    speed: 300,
+    slidesToShow: 1,
+    slidesToScroll: 1,
+    arrows: true,
+    prevArrow: <PrevArrow />,
+    nextArrow: <NextArrow />,
+    afterChange: (current) => setActiveCarouselIndex(current),
+    appendDots: (dots) => (
+      <div className="bg-white/80 rounded-lg p-2 mt-2">
+        <ul className="m-0 p-0 flex justify-center space-x-2">
+          {carouselItems.map((_, i) => (
+            <li
+              key={i}
+              className={`px-3 py-1 rounded-full text-sm font-medium cursor-pointer ${
+                i === activeCarouselIndex ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-600'
+              }`}
+              onClick={() => document.querySelector('.carousel-editor').slickGoTo(i)}
+            >
+              {i + 1}
+            </li>
+          ))}
+        </ul>
+      </div>
+    )
+  };
 
  // Carousel settings for preview modal
 const previewCarouselSettings = {
@@ -112,16 +132,8 @@ const previewCarouselSettings = {
   slidesToShow: 1,
   slidesToScroll: 1,
   arrows: true,
-  prevArrow: (
-    <button className="absolute left-0 top-1/2 transform -translate-y-1/2 bg-white/80 p-3 rounded-full shadow-md z-10 hover:bg-white">
-      <FaArrowLeft className="text-gray-600" />
-    </button>
-  ),
-  nextArrow: (
-    <button className="absolute right-0 top-1/2 transform -translate-y-1/2 bg-white/80 p-3 rounded-full shadow-md z-10 hover:bg-white">
-      <FaArrowRight className="text-gray-600" />
-    </button>
-  ),
+  prevArrow: <PrevArrow />,
+  nextArrow: <NextArrow />,
   afterChange: (current) => setActiveCarouselIndex(current),
   appendDots: (dots) => (
     <div className="bg-white/80 rounded-lg p-2 mt-2">
@@ -233,29 +245,53 @@ const addCarouselSlide = () => {
 
 const generateCarouselImages = async () => {
   if (!prompt.trim()) {
-    toast.warn("Please enter a prompt before generating images.", {
+    toast.warn("Please enter a prompt for image generation", {
       position: "top-center",
-      autoClose: 3000,
     });
     return;
   }
 
+  // Determine number of images to generate (default to 3 if no carousel items exist yet)
+  const numImages = carouselItems.length || 3;
+  if (numImages > 5) {
+    toast.warn("Maximum 5 carousel images can be generated at once", {
+      position: "top-center",
+    });
+  }
+  
+  const imagesToGenerate = Math.min(5, numImages);
   setGeneratingImage(true);
-  const toastId = toast.loading("Generating carousel images...", {
+  const toastId = toast.loading(`Generating ${imagesToGenerate} carousel images...`, {
     position: "top-center",
   });
 
   try {
-    // Generate images based on current number of slides
-    const themes = Array(carouselItems.length || 1).fill(0).map((_, i) =>
-      `${prompt} - variation ${i + 1}`
-    );
+    // Create more interesting prompt variations
+    const promptVariations = [];
+    
+    // Add the original prompt as the first variation
+    promptVariations.push(prompt);
+    
+    // Add creative variations based on the original prompt
+    const variations = [
+      `${prompt} with different perspective`,
+      `${prompt} with alternative styling`,
+      `${prompt} with varied composition`,
+      `${prompt} with different lighting`,
+      `${prompt} with unique angle`
+    ];
+    
+    // Add as many variations as needed
+    for (let i = 1; i < imagesToGenerate; i++) {
+      promptVariations.push(variations[i - 1] || `${prompt} - variation ${i + 1}`);
+    }
 
-    const generatedItems = await Promise.all(
-      themes.map(async (theme, index) => {
+    // Generate all images in parallel with proper error handling
+    const imagePromises = promptVariations.map(async (promptVar, index) => {
+      try {
         const imageRes = await axios.post(
           "http://127.0.0.1:8000/api/generate-image/",
-          { prompt: theme },
+          { prompt: promptVar },
           {
             responseType: "blob",
             timeout: 60000,
@@ -266,21 +302,54 @@ const generateCarouselImages = async () => {
         return {
           id: Date.now() + index,
           image: imageUrl,
+          caption: promptVar // Store the prompt used for this image
         };
-      })
-    );
-
-    setCarouselItems(generatedItems);
-    toast.update(toastId, {
-      render: "Carousel images generated successfully!",
-      type: "success",
-      isLoading: false,
-      autoClose: 3000,
+      } catch (error) {
+        console.error(`Error generating image ${index + 1}:`, error);
+        // Return null for failed generations
+        return null;
+      }
     });
+
+    const results = await Promise.all(imagePromises);
+    
+    // Filter out failed generations
+    const successfulResults = results.filter(result => result !== null);
+    
+    if (successfulResults.length === 0) {
+      throw new Error("Failed to generate any carousel images");
+    }
+    
+    setCarouselItems(successfulResults);
+    
+    // Show appropriate success message based on how many images were successfully generated
+    if (successfulResults.length < imagesToGenerate) {
+      toast.update(toastId, {
+        render: `Generated ${successfulResults.length} out of ${imagesToGenerate} requested images`,
+        type: "info",
+        isLoading: false,
+        autoClose: 3000,
+      });
+    } else {
+      toast.update(toastId, {
+        render: "Carousel images generated successfully!",
+        type: "success",
+        isLoading: false,
+        autoClose: 3000,
+      });
+    }
   } catch (error) {
     console.error("Carousel image generation error:", error);
+    
+    let errorMessage = "Failed to generate carousel images";
+    if (error.response?.data?.detail) {
+      errorMessage = error.response.data.detail;
+    } else if (error.message) {
+      errorMessage = error.message;
+    }
+    
     toast.update(toastId, {
-      render: "Failed to generate some carousel images. Please try again.",
+      render: errorMessage,
       type: "error",
       isLoading: false,
       autoClose: 5000,
@@ -537,124 +606,271 @@ const PreviewModal = ({ onClose, content, platform, isCarousel }) => {
 };
   // Fetch campaigns from database
   useEffect(() => {
-    const fetchCampaigns = async () => {
-      try {
-        const response = await axios.get("http://127.0.0.1:8000/api/get-campaigns");
+  const fetchCampaigns = async () => {
+    try {
+      console.log("🔍 Fetching campaigns...");
+      
+      // FIXED: Use the campaigns API method from your api.js
+      const response = await api.campaigns.getAll();
+      console.log("📊 Campaigns response:", response.data);
+      
+      // Handle the response properly - your backend returns an array directly
+      if (Array.isArray(response.data)) {
         setCampaigns(response.data);
-      } catch (error) {
-        console.error("Error fetching campaigns:", error);
+        console.log(`✅ Found ${response.data.length} campaigns`);
+      } else {
+        console.log("⚠️ No campaigns array found in response");
+        setCampaigns([]);
+      }
+    } catch (error) {
+      console.error("❌ Error fetching campaigns:", error);
+      
+      // More specific error handling
+      if (error.response?.status === 401) {
+        toast.error("Please log in to view campaigns", {
+          position: "top-center",
+          autoClose: 3000,
+        });
+      } else if (error.response?.status === 404) {
+        console.log("📭 Campaigns endpoint not found - user may not have any campaigns");
+        setCampaigns([]);
+      } else {
         toast.error("Failed to load campaigns", {
           position: "top-center",
           autoClose: 3000,
         });
+        setCampaigns([]);
       }
-    };
+    }
+  };
+  
+  // Only fetch if user is authenticated
+  const currentUser = auth.currentUser;
+  if (currentUser) {
     fetchCampaigns();
-  }, []);
+  } else {
+    console.log("👤 No authenticated user, skipping campaign fetch");
+  }
+}, []);
 
   // Fetch posts for selected campaign
   useEffect(() => {
-    if (selectedCampaign) {
-      const fetchCampaignPosts = async () => {
-        try {
-          const response = await axios.get(
-            `http://127.0.0.1:8000/api/get-campaign/${selectedCampaign._id}`
-          );
-          setCampaignPosts(response.data.posts || []);
-        } catch (error) {
-          console.error("Error fetching campaign posts:", error);
+  if (selectedCampaign) {
+    const fetchCampaignPosts = async () => {
+      try {
+        console.log(`🔍 Fetching posts for campaign: ${selectedCampaign._id}`);
+        
+        // FIXED: Use the campaigns API method
+        const response = await api.campaigns.getById(selectedCampaign._id);
+        console.log("📊 Campaign posts response:", response.data);
+        
+        // Handle different response structures from your backend
+        let posts = [];
+        if (response.data) {
+          // Your backend returns parsed_posts array
+          if (response.data.parsed_posts && Array.isArray(response.data.parsed_posts)) {
+            posts = response.data.parsed_posts.map(post => ({
+              ...post,
+              description: post.description || post.title || '',
+              image_url: post.image_url || null
+            }));
+          }
+          // Fallback to posts array if parsed_posts not available
+          else if (response.data.posts && Array.isArray(response.data.posts)) {
+            posts = response.data.posts.map(post => ({
+              ...post,
+              description: post.caption || post.content || post.description || '',
+              image_url: post.image_url || post.image_urls || null
+            }));
+          }
+        }
+        
+        setCampaignPosts(posts);
+        console.log(`✅ Found ${posts.length} posts for campaign`);
+        
+      } catch (error) {
+        console.error("❌ Error fetching campaign posts:", error);
+        
+        if (error.response?.status === 401) {
+          toast.error("Please log in to view campaign posts", {
+            position: "top-center",
+            autoClose: 3000,
+          });
+        } else if (error.response?.status === 404) {
+          toast.error("Campaign not found or access denied", {
+            position: "top-center",
+            autoClose: 3000,
+          });
+        } else {
           toast.error("Failed to load campaign posts", {
             position: "top-center",
             autoClose: 3000,
           });
         }
-      };
-      fetchCampaignPosts();
-    }
-  }, [selectedCampaign]);
-
+        setCampaignPosts([]);
+      }
+    };
+    fetchCampaignPosts();
+  } else {
+    setCampaignPosts([]);
+  }
+}, [selectedCampaign]);
   const generateContent = async () => {
-    if (!prompt.trim()) {
-      toast.warn("Please enter a prompt before generating.", {
-        position: "top-center",
-        autoClose: 3000,
-      });
-      return;
-    }
-
-    setLoading(true);
-    setGeneratingImage(true);
-    const toastId = toast.loading(isCarousel
-      ? "Generating your carousel content..."
-      : "Generating your content...", {
+  if (!prompt.trim()) {
+    toast.warn("Please enter a prompt before generating.", {
       position: "top-center",
-      autoClose: false,
-      toastId: 'content-generation'
+      autoClose: 3000,
+    });
+    return;
+  }
+
+  setLoading(true);
+  setGeneratingImage(true);
+  const toastId = toast.loading(isCarousel
+    ? "Generating your carousel content..."
+    : "Generating your content...", {
+    position: "top-center",
+    autoClose: false,
+    toastId: 'content-generation'
+  });
+
+  try {
+    // FIXED: Use proper API endpoint without double prefix
+    console.log("🎯 Generating caption with:", {
+      prompt: prompt.substring(0, 50) + "...",
+      platform: selectedPlatform.toLowerCase(),
+      is_carousel: isCarousel
     });
 
-    try {
-      // Generate caption first
-      const captionRes = await axios.post(
-        "http://127.0.0.1:8000/api/generate-caption/",
-        {
-          prompt: prompt,
-          platform: selectedPlatform.toLowerCase(),
-          is_carousel: isCarousel
+    const captionRes = await axios.post(
+      "http://127.0.0.1:8000/api/generate-caption/", // Correct endpoint
+      {
+        prompt: prompt,
+        platform: selectedPlatform.toLowerCase(),
+        is_carousel: isCarousel,
+        max_length: selectedPlatform.toLowerCase() === 'twitter' ? 240 : 300
+      },
+      {
+        timeout: 30000,
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+
+    console.log("📝 Caption response:", captionRes.data);
+
+    if (captionRes.data && captionRes.data.caption) {
+      setCaption(captionRes.data.caption);
+      
+      toast.update(toastId, {
+        render: "Caption generated! Now creating images...",
+        type: "info",
+        autoClose: false,
+        isLoading: true
+      });
+    } else {
+      throw new Error("Invalid caption response structure");
+    }
+
+    if (isCarousel) {
+      // Generate multiple images for carousel
+      const numImages = 3; // Default number of carousel images to generate
+      setCarouselItems([]); // Clear existing items
+      
+      // Create variations of the prompt for more diverse images
+      const promptVariations = [
+        prompt,
+        `${prompt} - variation 1`,
+        `${prompt} - variation 2`,
+        `${prompt} - different perspective`,
+        `${prompt} - alternative style`
+      ];
+      
+      // Generate images one by one
+      for (let i = 0; i < Math.min(numImages, promptVariations.length); i++) {
+        try {
+          toast.update(toastId, {
+            render: `Generating carousel image ${i+1}/${numImages}...`,
+            type: "info",
+            autoClose: false,
+            isLoading: true
+          });
+          
+          const imageRes = await axios.post(
+            "http://127.0.0.1:8000/api/generate-image/",
+            { prompt: promptVariations[i] },
+            { responseType: "blob", timeout: 60000 }
+          );
+          
+          const imageUrl = URL.createObjectURL(imageRes.data);
+          
+          // Add to carousel items
+          setCarouselItems(prev => [
+            ...prev,
+            { id: Date.now() + i, image: imageUrl }
+          ]);
+          
+          // Small delay between requests to avoid overwhelming the server
+          if (i < numImages - 1) await new Promise(r => setTimeout(r, 500));
+          
+        } catch (error) {
+          console.error(`Error generating carousel image ${i+1}:`, error);
+          // Continue with next image even if one fails
+        }
+      }
+    } else {
+      const imageRes = await axios.post(
+        "http://127.0.0.1:8000/api/generate-image/",
+        { prompt: prompt },
+        { 
+          responseType: "blob",
+          timeout: 60000
         }
       );
-      setCaption(captionRes.data.caption);
 
-      if (isCarousel) {
-        // For carousel, generate multiple images
-        toast.update(toastId, {
-          render: "Caption generated! Now creating carousel images...",
-          type: "info",
-          autoClose: false,
-          isLoading: true
-        });
-
-        await generateCarouselImages();
-      } else {
-        // Single image generation
-        toast.update(toastId, {
-          render: "Caption generated! Now creating image...",
-          type: "info",
-          autoClose: false,
-          isLoading: true
-        });
-
-        const imageRes = await axios.post(
-          "http://127.0.0.1:8000/api/generate-image/",
-          { prompt: prompt },
-          { responseType: "blob" }
-        );
-
-        const imageUrl = URL.createObjectURL(imageRes.data);
-        setUploadedImage(imageUrl);
-      }
-
-      toast.update(toastId, {
-        render: isCarousel
-          ? "Carousel content generated successfully!"
-          : "Content generated successfully!",
-        type: "success",
-        isLoading: false,
-        autoClose: 3000
-      });
-    } catch (error) {
-      console.error("Error generating content:", error);
-      toast.update(toastId, {
-        render: "Failed to generate content. Please try again.",
-        type: "error",
-        isLoading: false,
-        autoClose: 3000
-      });
-    } finally {
-      setLoading(false);
-      setGeneratingImage(false);
+      const imageUrl = URL.createObjectURL(imageRes.data);
+      setUploadedImage(imageUrl);
     }
-  };
 
+    toast.update(toastId, {
+      render: isCarousel
+        ? "Carousel content generated successfully!"
+        : "Content generated successfully!",
+      type: "success",
+      isLoading: false,
+      autoClose: 3000
+    });
+  } catch (error) {
+    console.error("❌ Error generating content:", error);
+    
+    let errorMessage = "Failed to generate content. Please try again.";
+    
+    if (error.response) {
+      if (error.response.status === 400) {
+        errorMessage = error.response.data?.detail || "Invalid input. Please check your prompt.";
+      } else if (error.response.status === 500) {
+        errorMessage = error.response.data?.detail || "Server error. Please try again.";
+      } else if (error.response.data?.detail) {
+        errorMessage = error.response.data.detail;
+      }
+    } else if (error.code === 'ECONNABORTED') {
+      errorMessage = "Request timed out. Please try with a shorter prompt.";
+    } else if (error.message) {
+      errorMessage = error.message;
+    }
+    
+    toast.update(toastId, {
+      render: errorMessage,
+      type: "error",
+      isLoading: false,
+      autoClose: 5000
+    });
+  } finally {
+    setLoading(false);
+    setGeneratingImage(false);
+  }
+};
   const generateImageOnly = async () => {
     if (!prompt.trim()) {
       toast.warn("Please enter a prompt before generating image.", {
@@ -760,8 +976,9 @@ const PreviewModal = ({ onClose, content, platform, isCarousel }) => {
   }
 };
 
-// Complete handlePostNow function with LinkedIn carousel handling
+// Handle posting content directly to social media platforms
 const handlePostNow = async () => {
+  // Validate required fields
   if (!caption.trim()) {
     toast.warn("Caption is required to post.", {
       position: "top-center",
@@ -795,165 +1012,118 @@ const handlePostNow = async () => {
       showLinkedInCarouselWarning(carouselItems);
     }
 
-    // Check if user has connected accounts for this platform
-    let connectedAccountsResponse;
-    try {
-      connectedAccountsResponse = await axios.get("/api/accounts?user_id=current_user_id");
-    } catch (error) {
-      console.error("Error fetching connected accounts:", error);
-      throw new Error(`Failed to check connected accounts. Please make sure you're connected to ${platform}.`);
-    }
+    // Helper function to upload images to Cloudinary
+    const uploadImageToCloudinary = async (blobUrl) => {
+      try {
+        const response = await fetch(blobUrl);
+        const blob = await response.blob();
+        const file = new File([blob], `post-image-${Date.now()}.jpg`, {
+          type: blob.type,
+        });
 
-    const accounts = connectedAccountsResponse.data?.accounts || [];
-    const platformAccounts = accounts.filter(
-      account => account.platform.toLowerCase() === platform.toLowerCase()
-    );
+        const formData = new FormData();
+        formData.append("file", file);
+        formData.append("upload_preset", "gtwsrzhq");
 
-    if (platformAccounts.length === 0) {
-      toast.update(toastId, {
-        render: (
-          <div className="flex items-center">
-            <FaExclamationTriangle className="text-yellow-500 mr-2" />
-            <span>No connected {platform} account found. Please connect your account first.</span>
-          </div>
-        ),
-        type: "warning",
-        isLoading: false,
-        autoClose: 5000,
-      });
-      setLoading(false);
-      return;
-    }
-
-    // Prepare image files for Cloudinary upload
-    let imageFiles = [];
+        const cloudinaryResponse = await axios.post(
+          "https://api.cloudinary.com/v1_1/dgk4su3ne/image/upload",
+          formData,
+          { timeout: 30000 }
+        );
+        return cloudinaryResponse.data.secure_url;
+      } catch (error) {
+        console.error("Error uploading to Cloudinary:", error);
+        return null;
+      }
+    };
+    
+    // Prepare image URLs for posting
     let imageUrls = [];
-
+    
+    // Upload images to Cloudinary if they're blob URLs
     if (isCarousel) {
       for (const item of carouselItems) {
         if (item.image && item.image.startsWith("blob:")) {
-          const response = await fetch(item.image);
-          const blob = await response.blob();
-          const file = new File([blob], `carousel-image-${Date.now()}.jpg`, {
-            type: blob.type,
-          });
-          imageFiles.push(file);
+          // Upload to Cloudinary
+          const imageUrl = await uploadImageToCloudinary(item.image);
+          if (imageUrl) imageUrls.push(imageUrl);
         } else if (item.image) {
+          // Already a URL
           imageUrls.push(item.image);
         }
       }
-    } else {
-      if (uploadedImage && uploadedImage.startsWith("blob:")) {
-        const response = await fetch(uploadedImage);
-        const blob = await response.blob();
-        const file = new File([blob], "generated-image.jpg", {
-          type: blob.type,
-        });
-        imageFiles.push(file);
-      } else if (uploadedImage) {
+    } else if (uploadedImage) {
+      if (uploadedImage.startsWith("blob:")) {
+        // Upload to Cloudinary
+        const imageUrl = await uploadImageToCloudinary(uploadedImage);
+        if (imageUrl) imageUrls.push(imageUrl);
+      } else {
+        // Already a URL
         imageUrls.push(uploadedImage);
       }
     }
-
-    // Parallelize Cloudinary uploads
-    const uploadPromises = imageFiles.map(async (file) => {
-      const formData = new FormData();
-      formData.append("file", file);
-      formData.append("upload_preset", "gtwsrzhq");
-
-      const cloudinaryResponse = await axios.post(
-        "https://api.cloudinary.com/v1_1/dgk4su3ne/image/upload",
-        formData,
-        { timeout: 30000 }
-      );
-      return cloudinaryResponse.data.secure_url;
-    });
-
-    imageUrls = [...imageUrls, ...(await Promise.all(uploadPromises))];
-
-    // Prepare request data for the post-now endpoint
-    const requestData = {
+    
+    if (imageUrls.length === 0 && (isCarousel || uploadedImage)) {
+      throw new Error("Failed to prepare images for posting");
+    }
+    
+    // Send post request to backend
+    const postData = {
       platform: platform.toLowerCase(),
       caption: caption,
       image_url: isCarousel ? imageUrls : imageUrls[0],
-      is_carousel: isCarousel,
-      user_id: "current_user_id" // In a real app, this would come from authentication
+      is_carousel: isCarousel
     };
-
-    console.log("Posting with data:", requestData);
-
-    // Call the post-now endpoint
-    const response = await axios.post(
-      "/api/post-now/",
-      requestData,
-      { headers: { "Content-Type": "application/json" } }
-    );
-
-    if (response.data.success) {
-      let successMessage = `Post successfully published to ${platform}!`;
-
-      // Add special message for LinkedIn carousel posts
-      if (platform.toLowerCase() === 'linkedin' && isCarousel && carouselItems.length > 1) {
-        successMessage = `Post published to LinkedIn with the first image only, due to API limitations.`;
+    
+    console.log("📤 Posting content:", postData);
+    
+    const postResponse = await axios.post(
+      "http://127.0.0.1:8000/api/post-now/",
+      postData,
+      {
+        timeout: 30000,
+        headers: {
+          'Content-Type': 'application/json'
+        }
       }
-
+    );
+    
+    if (postResponse.data && postResponse.data.success) {
       toast.update(toastId, {
-        render: (
-          <div className="flex items-center">
-            <FaCheckCircle className="text-green-500 mr-2" />
-            {successMessage}
-          </div>
-        ),
+        render: `Successfully posted to ${platform}!`,
         type: "success",
         isLoading: false,
         autoClose: 3000,
       });
-
-      // Optional: Clear form after successful post
-      // setCaption("");
-      // setUploadedImage(null);
-      // setCarouselItems([]);
-
+      
+      // Reset form after successful post
+      setCaption("");
+      setUploadedImage(null);
+      setCarouselItems([]);
+      setPrompt("");
+      setIsCarousel(false);
     } else {
-      throw new Error("Failed to post content");
+      throw new Error("Post request did not return success status");
     }
   } catch (error) {
-    console.error("Error posting:", error);
-    let errorMessage = "Error posting. Please try again.";
-    let errorType = "error";
-
-    // Specific error handling for LinkedIn
-    if (error.response) {
-      if (error.response.data?.detail) {
-        errorMessage = error.response.data.detail;
-
-        // Handle specific LinkedIn errors
-        if (typeof errorMessage === 'string' && errorMessage.includes("INVALID_CONTENT_OWNERSHIP")) {
-          errorMessage = "LinkedIn error: Image ownership issue. This is a common LinkedIn API limitation. Try using a text-only post.";
-          errorType = "warning";
-        }
-      } else if (error.response.data?.message) {
-        errorMessage = error.response.data.message;
-      } else if (error.response.statusText) {
-        errorMessage = error.response.statusText;
-      }
+    console.error("Error posting content:", error);
+    
+    let errorMessage = "Failed to post content";
+    if (error.response?.status === 401) {
+      errorMessage = "Authentication required. Please log in again.";
+    } else if (error.response?.status === 404) {
+      errorMessage = "No connected account found for this platform. Please connect your account first.";
+    } else if (error.response?.data?.detail) {
+      errorMessage = error.response.data.detail;
     } else if (error.message) {
       errorMessage = error.message;
     }
-
+    
     toast.update(toastId, {
-      render: (
-        <div className="flex items-center">
-          <FaExclamationTriangle className={`${errorType === "warning" ? "text-yellow-500" : "text-red-500"} mr-2`} />
-          <div>
-            <div className="font-medium">{errorType === "warning" ? "Warning" : "Error"}</div>
-            <div className="text-sm">{errorMessage}</div>
-          </div>
-        </div>
-      ),
-      type: errorType,
+      render: errorMessage,
+      type: "error",
       isLoading: false,
-      autoClose: 7000,
+      autoClose: 5000,
     });
   } finally {
     setLoading(false);
@@ -1161,10 +1331,16 @@ const handleSaveDraft = async () => {
       image_url: isCarousel ? imageUrls : imageUrls[0],
       platform: platform.toLowerCase(),
       is_carousel: isCarousel,
-      created_at: new Date().toISOString(),
+      prompt: prompt || "", // Include the prompt used to generate the content
     };
 
-    const response = await axios.post("http://127.0.0.1:8000/api/drafts/", draftData);
+    // Use axios directly with the full URL
+    console.log("📝 Saving draft with data:", draftData);
+    const response = await axios.post("http://127.0.0.1:8000/api/save-draft/", draftData, {
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('token')}`
+      }
+    });
 
     toast.update(toastId, {
       render: "Draft saved successfully!",
@@ -1178,7 +1354,7 @@ const handleSaveDraft = async () => {
     setUploadedImage(null);
     setCarouselItems([]);
     setIsCarousel(false);
-    navigate("/drafts"); // Navigate to drafts page if exists
+    navigate("/drafts-page"); // Navigate to the correct drafts page route
   } catch (error) {
     console.error("Error saving draft:", error);
     toast.update(toastId, {
@@ -1192,54 +1368,30 @@ const handleSaveDraft = async () => {
   }
 };
 
-
 const handleUsePost = (post) => {
   try {
-    console.log("Using post:", post); // Debug log
+    console.log("🔧 Using post:", post);
 
-    // Set the description in the AI Content Generator box (prompt)
-    setPrompt(post.description || post.title || "");
+    // Set the description in the AI Content Generator box (prompt) only
+    const promptText = post.description || post.title || post.caption || post.content || "";
+    setPrompt(promptText);
 
-    // Clear or set the caption box (you can keep this empty or set a default)
-    setCaption("");
-
-    // Handle images
-    if (post.image_url) {
-      if (Array.isArray(post.image_url)) {
-        // Carousel post
-        setIsCarousel(true);
-        setCarouselItems(
-          post.image_url.map((url, index) => ({
-            id: Date.now() + index,
-            image: url,
-          }))
-        );
-        setUploadedImage(null); // Clear single image
-      } else {
-        // Single image post
-        setIsCarousel(false);
-        setUploadedImage(post.image_url);
-        setCarouselItems([]); // Clear carousel
-      }
-    } else {
-      // No images
-      setIsCarousel(false);
-      setUploadedImage(null);
-      setCarouselItems([]);
-    }
-
+    // Don't set the caption - this was causing the issue
+    // Keep the existing caption if any
+    
+    // Handle images - don't load images either, just the prompt
     // Close campaigns dropdown if open
     setShowCampaigns(false);
 
     // Show success feedback
-    toast.success("Post loaded to AI Generator!", {
+    toast.success("Content loaded to AI generator!", {
       position: "top-center",
       autoClose: 2000,
     });
 
   } catch (error) {
-    console.error("Error using post:", error);
-    toast.error("Failed to load post", {
+    console.error("❌ Error using post:", error);
+    toast.error("Failed to load post content", {
       position: "top-center",
       autoClose: 3000,
     });
