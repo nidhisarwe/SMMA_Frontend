@@ -568,6 +568,113 @@ const CalendarPage = () => {
     };
   };
 
+  const handlePostNow = async (event) => {
+  const toastId = toast.loading("Posting content...", { position: "top-center" });
+
+  try {
+    // Validate required fields
+    if (!event.caption || !event.platform) {
+      toast.update(toastId, {
+        render: "Caption and platform are required",
+        type: "error",
+        isLoading: false,
+        autoClose: 5000,
+      });
+      return;
+    }
+
+    if (!event.image_url) {
+      toast.update(toastId, {
+        render: "An image is required for the post",
+        type: "error",
+        isLoading: false,
+        autoClose: 5000,
+      });
+      return;
+    }
+
+    // Check for connected account
+    const hasConnectedAccount = connectedAccounts.some(
+      acc => acc.platform.toLowerCase() === event.platform.toLowerCase() && acc.is_active
+    );
+
+    if (!hasConnectedAccount) {
+      toast.update(toastId, {
+        render: `No connected ${event.platform} account found. Please connect an account first.`,
+        type: "error",
+        isLoading: false,
+        autoClose: 5000,
+      });
+      setShowAccountWarning(true);
+      return;
+    }
+
+    // Prepare post data
+    const postData = {
+      platform: event.platform.toLowerCase(),
+      caption: event.caption,
+      image_url: event.is_carousel ? event.image_url : event.image_url,
+      is_carousel: event.is_carousel,
+    };
+
+    console.log("📤 Posting to backend with:", {
+      url: "/api/post-now/",
+      data: postData,
+    });
+
+    // Use centralized API client for posting
+    const postResponse = await api.posts.postNow(postData);
+
+    // Update event status to published
+    setEvents(prev =>
+      prev.map(e =>
+        e.id === event.id ? { ...e, status: "published" } : e
+      )
+    );
+    setFilteredEvents(prev =>
+      prev.map(e =>
+        e.id === event.id ? { ...e, status: "published" } : e
+      )
+    );
+
+    // Update stats
+    setStats(prev => ({
+      ...prev,
+      byStatus: {
+        ...prev.byStatus,
+        scheduled: (prev.byStatus.scheduled || 0) - 1,
+        published: (prev.byStatus.published || 0) + 1,
+      },
+    }));
+
+    toast.update(toastId, {
+      render: "Content posted successfully!",
+      type: "success",
+      isLoading: false,
+      autoClose: 3000,
+    });
+
+    // Show confetti animation
+    setShowConfetti(true);
+    setTimeout(() => setShowConfetti(false), 3000);
+
+    // Close modal
+    setSelectedEvent(null);
+
+  } catch (error) {
+    console.error("Error posting content:", error.response?.data || error.message);
+    const errorMessage = error.response?.data?.detail || error.message || "Failed to post content";
+    toast.update(toastId, {
+      render: errorMessage,
+      type: "error",
+      isLoading: false,
+      autoClose: 5000,
+    });
+  } finally {
+    setIsModalLoading(false);
+  }
+};
+
   // Custom toolbar component
   const CustomToolbar = ({ label, onNavigate, onView }) => (
     <div className="flex flex-col md:flex-row md:items-center justify-between mb-4 p-4 bg-white rounded-lg shadow-sm">
@@ -1212,155 +1319,136 @@ const CalendarPage = () => {
             </AnimatePresence>
 
             {/* Event Detail Modal */}
-            <AnimatePresence>
-              {selectedEvent && (
-                <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4"
-                  onClick={() => setSelectedEvent(null)}
-                >
-                  <motion.div
-                    initial={{ y: 20, opacity: 0 }}
-                    animate={{ y: 0, opacity: 1 }}
-                    exit={{ y: 20, opacity: 0 }}
-                    className="bg-white rounded-xl shadow-xl p-6 w-full max-w-md max-h-[90vh] overflow-y-auto"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    {isModalLoading ? (
-                      <div className="flex items-center justify-center py-8">
-                        <div className="relative">
-                          <div className="h-12 w-12 rounded-full border-t-4 border-b-4 border-blue-200 animate-spin"></div>
-                          <div className="absolute top-0 left-0 h-12 w-12 rounded-full border-t-4 border-b-4 border-blue-500 animate-spin"></div>
-                        </div>
-                      </div>
-                    ) : (
-                      <>
-                        <div className="flex justify-between items-center mb-4">
-                          <h2 className="text-xl font-bold text-gray-800">Post Details</h2>
-                          <motion.button
-                            whileHover={{ scale: 1.1 }}
-                            onClick={() => setSelectedEvent(null)}
-                            className="text-gray-500 hover:text-gray-700"
-                          >
-                            <FiX size={20} />
-                          </motion.button>
-                        </div>
-                        <div className="space-y-4">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center">
-                              {selectedEvent.platform && (
-                                <svg
-                                  className="h-5 w-5 mr-2"
-                                  fill="currentColor"
-                                  viewBox="0 0 24 24"
-                                  style={{ color: platformData[selectedEvent.platform]?.color || "#999" }}
-                                >
-                                  <path d={platformData[selectedEvent.platform]?.icon || ""} />
-                                </svg>
-                              )}
-                              <span className="font-medium capitalize">{selectedEvent.platform}</span>
-                            </div>
-                            <span className={`text-xs px-2.5 py-1 rounded-full ${statusColors[selectedEvent.status]}`}>
-                              {selectedEvent.status}
-                            </span>
-                          </div>
+        <AnimatePresence>
+  {selectedEvent && (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+      onClick={() => setSelectedEvent(null)}
+    >
+      <motion.div
+        initial={{ y: 20, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        exit={{ y: 20, opacity: 0 }}
+        className="bg-white rounded-xl shadow-xl p-6 w-full max-w-md max-h-[90vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {isModalLoading ? (
+          <div className="flex items-center justify-center py-8">
+            <div className="relative">
+              <div className="h-12 w-12 rounded-full border-t-4 border-b-4 border-blue-200 animate-spin"></div>
+              <div className="absolute top-0 left-0 h-12 w-12 rounded-full border-t-4 border-b-4 border-blue-500 animate-spin"></div>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-bold text-gray-800">Post Details</h2>
+              <motion.button
+                whileHover={{ scale: 1.1 }}
+                onClick={() => setSelectedEvent(null)}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                <FiX size={20} />
+              </motion.button>
+            </div>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center">
+                  {selectedEvent.platform && (
+                    <svg
+                      className="h-5 w-5 mr-2"
+                      fill="currentColor"
+                      viewBox="0 0 24 24"
+                      style={{ color: platformData[selectedEvent.platform]?.color || "#999" }}
+                    >
+                      <path d={platformData[selectedEvent.platform]?.icon || ""} />
+                    </svg>
+                  )}
+                  <span className="font-medium capitalize">{selectedEvent.platform}</span>
+                </div>
+                <span className={`text-xs px-2.5 py-1 rounded-full ${statusColors[selectedEvent.status]}`}>
+                  {selectedEvent.status}
+                </span>
+              </div>
 
-                          <div className="bg-gray-50 p-4 rounded-lg">
-                            <div className="flex items-center text-gray-800 mb-2">
-                              <FiClock className="mr-2 text-gray-500 h-4 w-4" />
-                              <p className="font-medium text-sm">
-                                {moment(selectedEvent.start).format("MMMM Do YYYY, h:mm a")} (IST)
-                              </p>
-                            </div>
-                            <p className="text-sm text-gray-800 mb-3">{selectedEvent.caption}</p>
-                            {selectedEvent.image_url && (
-                              <div className={`${getAspectRatio(selectedEvent.platform)} w-full overflow-hidden rounded border border-gray-200`}>
-                                <img
-                                  src={selectedEvent.is_carousel ? (Array.isArray(selectedEvent.image_url) ? selectedEvent.image_url[0] : selectedEvent.image_url) : selectedEvent.image_url}
-                                  alt="Post media"
-                                  className="w-full h-full object-cover"
-                                />
-                              </div>
-                            )}
-                          </div>
+              <div className="bg-gray-50 p-4 rounded-lg">
+                <div className="flex items-center text-gray-800 mb-2">
+                  <FiClock className="mr-2 text-gray-500 h-4 w-4" />
+                  <p className="font-medium text-sm">
+                    {moment(selectedEvent.start).format("MMMM Do YYYY, h:mm a")} (IST)
+                  </p>
+                </div>
+                <p className="text-sm text-gray-800 mb-3">{selectedEvent.caption}</p>
+                {selectedEvent.image_url && (
+                  <div className={`${getAspectRatio(selectedEvent.platform)} w-full overflow-hidden rounded border border-gray-200`}>
+                    <img
+                      src={selectedEvent.is_carousel ? (Array.isArray(selectedEvent.image_url) ? selectedEvent.image_url[0] : selectedEvent.image_url) : selectedEvent.image_url}
+                      alt="Post media"
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                )}
+              </div>
 
-                          {selectedEvent.tags?.length > 0 && (
-                            <div>
-                              <p className="text-xs text-gray-500 mb-1">Tags</p>
-                              <div className="flex flex-wrap gap-2">
-                                {selectedEvent.tags.map(tag => (
-                                  <span key={tag} className="text-xs px-2.5 py-1 bg-gray-100 text-gray-700 rounded-full flex items-center">
-                                    <FiTag className="mr-1" size={12} /> {tag}
-                                  </span>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-
-                          {selectedEvent.assigned_to && (
-                            <div>
-                              <p className="text-xs text-gray-500 mb-1">Assigned To</p>
-                              <div className="flex items-center">
-                                <div className="w-6 h-6 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-xs mr-2">
-                                  {selectedEvent.assigned_to.charAt(0).toUpperCase()}
-                                </div>
-                                <span className="text-sm text-gray-800">
-                                  {teamMembers.find(m => m.username === selectedEvent.assigned_to)?.name || selectedEvent.assigned_to}
-                                </span>
-                              </div>
-                            </div>
-                          )}
-
-                          <div className="pt-3 flex space-x-3">
-                            <motion.button
-                              whileHover={{ scale: 1.02 }}
-                              whileTap={{ scale: 0.98 }}
-                              onClick={() => {
-                                navigate('/create-post', {
-                                  state: {
-                                    editMode: true,
-                                    postData: selectedEvent
-                                  }
-                                });
-                              }}
-                              className="flex-1 bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 transition-colors text-sm"
-                              disabled={isModalLoading}
-                            >
-                              Edit Post
-                            </motion.button>
-                            <motion.button
-                              whileHover={{ scale: 1.02 }}
-                              whileTap={{ scale: 0.98 }}
-                              onClick={() => deletePost(selectedEvent.id)}
-                              className="flex-1 bg-red-100 text-red-600 py-2.5 rounded-lg font-medium hover:bg-red-200 transition-colors text-sm"
-                              disabled={isModalLoading}
-                            >
-                              Cancel Post
-                            </motion.button>
-                          </div>
-
-                          {selectedEvent.status === "scheduled" && (
-                            <div className="pt-2">
-                              <motion.button
-                                whileHover={{ scale: 1.02 }}
-                                whileTap={{ scale: 0.98 }}
-                                onClick={() => updatePostStatus(selectedEvent.id, "published")}
-                                className="w-full bg-green-100 text-green-600 py-2.5 rounded-lg font-medium hover:bg-green-200 transition-colors text-sm"
-                                disabled={isModalLoading}
-                              >
-                                Mark as Published
-                              </motion.button>
-                            </div>
-                          )}
-                        </div>
-                      </>
-                    )}
-                  </motion.div>
-                </motion.div>
+              {selectedEvent.tags?.length > 0 && (
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">Tags</p>
+                  <div className="flex flex-wrap gap-2">
+                    {selectedEvent.tags.map(tag => (
+                      <span key={tag} className="text-xs px-2.5 py-1 bg-gray-100 text-gray-700 rounded-full flex items-center">
+                        <FiTag className="mr-1" size={12} /> {tag}
+                      </span>
+                    ))}
+                  </div>
+                </div>
               )}
-            </AnimatePresence>
+
+              {selectedEvent.assigned_to && (
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">Assigned To</p>
+                  <div className="flex items-center">
+                    <div className="w-6 h-6 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-xs mr-2">
+                      {selectedEvent.assigned_to.charAt(0).toUpperCase()}
+                    </div>
+                    <span className="text-sm text-gray-800">
+                      {teamMembers.find(m => m.username === selectedEvent.assigned_to)?.name || selectedEvent.assigned_to}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              <div className="pt-3 flex space-x-3">
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={() => deletePost(selectedEvent.id)}
+                  className="flex-1 bg-red-100 text-red-600 py-2.5 rounded-lg font-medium hover:bg-red-200 transition-colors text-sm"
+                  disabled={isModalLoading}
+                >
+                  Cancel Post
+                </motion.button>
+                {selectedEvent.status === "scheduled" && (
+                  <motion.button
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={() => handlePostNow(selectedEvent)}
+                    className="flex-1 bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 transition-colors text-sm"
+                    disabled={isModalLoading}
+                  >
+                    Post Now
+                  </motion.button>
+                )}
+              </div>
+            </div>
+          </>
+        )}
+      </motion.div>
+    </motion.div>
+  )}
+</AnimatePresence>
 
             <ToastContainer
               position="top-right"
