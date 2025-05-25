@@ -1243,30 +1243,30 @@ const CreatePost = () => {
                     </div>
                     {showCampaigns ? <FaChevronDown className="text-gray-500" /> : <FaChevronRight className="text-gray-500" />}
                   </div>
-                  {showCampaigns && (
-                    <div className="space-y-2 max-h-[300px] overflow-y-auto">
-                      {campaigns.length > 0 ? (
-                        campaigns.map((campaign) => (
-                          <div
-                            key={campaign._id}
-                            className={`p-3 rounded-lg cursor-pointer transition ${
-                              selectedCampaign?._id === campaign._id
-                                ? "bg-blue-50 border border-blue-200"
-                                : "hover:bg-gray-50"
-                            }`}
-                            onClick={() => setSelectedCampaign(campaign)}
-                          >
-                            <h3 className="font-medium text-gray-800">{campaign.campaign_name}</h3>
-                            <p className="text-sm text-gray-500">
-                              {campaign.posts?.length || 0} posts
-                            </p>
-                          </div>
-                        ))
-                      ) : (
-                        <p className="text-gray-500 text-sm">No campaigns found</p>
-                      )}
-                    </div>
-                  )}
+             {showCampaigns && (
+  <div className="space-y-2 max-h-[300px] overflow-y-auto">
+    {campaigns.length > 0 ? (
+      campaigns.map((campaign) => (
+        <div
+          key={campaign._id}
+          className={`p-3 rounded-lg cursor-pointer transition ${
+            selectedCampaign?._id === campaign._id
+              ? "bg-blue-50 border border-blue-200"
+              : "hover:bg-gray-50"
+          }`}
+          onClick={() => setSelectedCampaign(campaign)}
+        >
+          <h3 className="font-medium text-gray-800">{campaign.campaign_name}</h3>
+          <p className="text-sm text-gray-500">
+            {campaign.post_count || campaign.parsed_posts?.length || 0} posts
+          </p>
+        </div>
+      ))
+    ) : (
+      <p className="text-gray-500 text-sm">No campaigns found</p>
+    )}
+  </div>
+)}
                   {selectedCampaign && campaignPosts.length > 0 && (
                     <div className="mt-6">
                       <div className="flex items-center mb-3">
