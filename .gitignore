@@ -7,15 +7,27 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-node_modules
-dist
-dist-ssr
+# Node modules
+node_modules/
+
+# Environment files
+.env
+*.env
+.env.local
+.env.development
+.env.test
+.env.production
+
+# Build output
+dist/
+build/
+dist-ssr/
 *.local
 
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
-.idea
+.idea/
 .DS_Store
 *.suo
 *.ntvs*
@@ -23,21 +35,24 @@ dist-ssr
 *.sln
 *.sw?
 
-# Node modules
-node_modules/
-
-# Environment files
-.env
-*.env
-
-# Build output
-dist/
-build/
-
-# Logs
-*.log
-
 # OS-specific files
-.DS_Store
 Thumbs.db
 
+# Firebase configuration
+src/firebase/config.js
+src/firebase.js
+
+# Sensitive API-related files (optional, review these files)
+src/api/apiClient.js
+src/utils/api.js
+
+# Cache and temporary files
+.cache/
+*.cache
+*.bak
+*.swp
+*~
+
+# Dependency lock file
+package-lock.json
+yarn.lock
